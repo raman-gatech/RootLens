@@ -8,6 +8,10 @@ from pathlib import Path
 from urllib.request import urlopen
 
 PROJECT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT))
+
+from experiment_controller.contracts import FaultType  # noqa: E402
+
 KUBECTL = "kubectl"
 CONTEXT = "kind-rootlens"
 
@@ -54,6 +58,9 @@ def verify() -> None:
         "customresourcedefinition.apiextensions.k8s.io/stresschaos.chaos-mesh.org",
         "customresourcedefinition.apiextensions.k8s.io/networkchaos.chaos-mesh.org",
         "customresourcedefinition.apiextensions.k8s.io/httpchaos.chaos-mesh.org",
+        "customresourcedefinition.apiextensions.k8s.io/dnschaos.chaos-mesh.org",
+        "customresourcedefinition.apiextensions.k8s.io/iochaos.chaos-mesh.org",
+        "customresourcedefinition.apiextensions.k8s.io/timechaos.chaos-mesh.org",
     }
     if not required_crds <= crds:
         raise RuntimeError("one or more required Chaos Mesh CRDs are absent")
@@ -80,7 +87,7 @@ def verify() -> None:
             raise RuntimeError(f"frontend returned HTTP {response.status}")
     print("PASS Kubernetes demo frontend")
 
-    for fault in ("pod_kill", "cpu_stress", "network_latency", "packet_loss", "http_delay"):
+    for fault in FaultType:
         subprocess.run(
             [
                 sys.executable,
@@ -88,7 +95,7 @@ def verify() -> None:
                 "experiment_controller.cli",
                 "validate",
                 "--fault",
-                fault,
+                fault.value,
                 "--duration",
                 "10",
             ],
@@ -97,7 +104,7 @@ def verify() -> None:
             capture_output=True,
             text=True,
         )
-    print("PASS all five fault manifests passed server-side validation")
+    print(f"PASS all {len(FaultType)} fault manifests passed server-side validation")
 
 
 def main() -> int:

@@ -139,6 +139,8 @@ class PodSnapshot(BaseModel):
     node_name: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
     created_at: datetime | None = None
+    owner_kind: str | None = None
+    owner_name: str | None = None
 
 
 class DeploymentSnapshot(BaseModel):

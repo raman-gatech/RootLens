@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=75", "wheel"]
+requires = ["setuptools==84.0.0", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "rootlens"
-version = "0.4.0"
+version = "1.0.0"
 description = "Graph-grounded incident diagnosis and remediation platform"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,6 +15,7 @@ dependencies = [
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
   "networkx>=3.6,<4",
+  "numpy>=2.5,<3",
   "opentelemetry-api>=1.31,<2",
   "opentelemetry-exporter-otlp-proto-grpc>=1.31,<2",
   "opentelemetry-instrumentation-fastapi>=0.52b0,<1",
@@ -22,6 +23,7 @@ dependencies = [
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "PyYAML>=6,<7",
+  "scikit-learn>=1.9,<2",
   "sqlalchemy[asyncio]>=2.0,<3",
   "uvicorn[standard]>=0.34,<1",
 ]
@@ -29,8 +31,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "mypy>=1.15,<2",
-  "pytest>=8.3,<9",
-  "pytest-asyncio>=0.25,<1",
+  "pytest-playwright>=0.9,<1",
+  "pytest>=9.0.3,<10",
+  "pytest-asyncio>=1.4,<2",
   "ruff>=0.11,<1",
   "types-networkx>=3.6.1,<4",
   "types-PyYAML>=6.0.12,<7",
@@ -39,10 +42,14 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+rootlens = ["ui/*.html", "ui/*.css", "ui/*.js"]
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests/unit"]
+markers = ["e2e: browser-driven end-to-end tests"]
 
 [tool.ruff]
 extend-exclude = ["vendor"]
@@ -55,4 +62,4 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["rootlens", "experiment_controller"]
+packages = ["rootlens", "experiment_controller", "evaluation_harness"]

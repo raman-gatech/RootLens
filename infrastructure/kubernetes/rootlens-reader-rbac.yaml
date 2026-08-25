@@ -4,6 +4,15 @@ metadata:
   name: rootlens-reader
   namespace: rootlens
 ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rootlens-reader-token
+  namespace: rootlens
+  annotations:
+    kubernetes.io/service-account.name: rootlens-reader
+type: kubernetes.io/service-account-token
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

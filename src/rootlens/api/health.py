@@ -33,6 +33,9 @@ async def readiness(
     try:
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
+            revision = await connection.execute(text("SELECT version_num FROM alembic_version"))
+            if revision.scalar_one_or_none() != request.app.state.settings.schema_revision:
+                raise RuntimeError("database schema revision does not match application")
     except Exception:  # The response deliberately does not expose connection details.
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return HealthResponse(status="not_ready", service=request.app.title)

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RootLens graph-grounded incident operations console">
+    <title>RootLens Operations</title>
+    <link rel="stylesheet" href="/dashboard/assets/styles.css">
+    <script src="/dashboard/assets/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/dashboard" aria-label="RootLens home">
+        <span class="brand-mark" aria-hidden="true">R</span>
+        <span><strong>RootLens</strong><small>Incident intelligence</small></span>
+      </a>
+      <div class="system-state">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="system-status">Connecting</span>
+        <time id="utc-clock"></time>
+        <button id="connect-button" class="button compact" type="button">Connect</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">OPERATIONS / ACTIVE INCIDENTS</p>
+          <h1>Evidence before action.</h1>
+          <p>Graph-grounded diagnosis with explicit provenance and guarded remediation.</p>
+        </div>
+        <button id="new-incident-button" class="button primary" type="button">New incident</button>
+      </section>
+
+      <section class="summary-grid" aria-label="Operational summary">
+        <article><span>Open incidents</span><strong id="open-count">—</strong></article>
+        <article><span>Top confidence</span><strong id="top-confidence">—</strong></article>
+        <article><span>Evidence items</span><strong id="evidence-count">—</strong></article>
+        <article><span>Agent mode</span><strong id="agent-mode">—</strong></article>
+      </section>
+
+      <section class="workspace">
+        <aside class="incident-rail panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">QUEUE</p><h2>Incidents</h2></div>
+            <button id="refresh-button" class="icon-button" type="button" aria-label="Refresh">↻</button>
+          </div>
+          <div id="incident-list" class="incident-list" aria-live="polite"></div>
+        </aside>
+
+        <div class="investigation-column">
+          <section class="panel incident-header" id="incident-header">
+            <div>
+              <div class="status-line">
+                <span id="incident-severity" class="badge">NO INCIDENT</span>
+                <span id="incident-status" class="badge neutral">IDLE</span>
+              </div>
+              <h2 id="incident-title">Select an incident</h2>
+              <p id="incident-summary">Choose an incident from the queue to inspect its evidence.</p>
+            </div>
+            <button id="investigate-button" class="button primary" type="button" disabled>
+              Run investigation
+            </button>
+          </section>
+
+          <nav class="tabs" aria-label="Investigation views">
+            <button class="tab active" data-tab="hypotheses" type="button">Hypotheses</button>
+            <button class="tab" data-tab="graph" type="button">Service graph</button>
+            <button class="tab" data-tab="evidence" type="button">Evidence</button>
+            <button class="tab" data-tab="timeline" type="button">Timeline</button>
+            <button class="tab" data-tab="agents" type="button">Agent trace</button>
+            <button class="tab" data-tab="remediation" type="button">Remediation</button>
+          </nav>
+
+          <section id="view-hypotheses" class="tab-view panel">
+            <div class="panel-heading"><div><p class="eyebrow">RANKED RCA</p><h2>Hypotheses</h2></div></div>
+            <div id="hypothesis-list" class="hypothesis-list empty-state">No investigation selected.</div>
+          </section>
+
+          <section id="view-graph" class="tab-view panel hidden">
+            <div class="panel-heading"><div><p class="eyebrow">TRACE-DERIVED</p><h2>Service graph</h2></div></div>
+            <div id="graph-container" class="graph-container empty-state">No graph available.</div>
+          </section>
+
+          <section id="view-evidence" class="tab-view panel hidden">
+            <div class="panel-heading"><div><p class="eyebrow">CHAIN OF CUSTODY</p><h2>Evidence ledger</h2></div></div>
+            <div id="evidence-list" class="evidence-list empty-state">No evidence available.</div>
+          </section>
+
+          <section id="view-timeline" class="tab-view panel hidden">
+            <div class="panel-heading"><div><p class="eyebrow">SEQUENCE</p><h2>Incident timeline</h2></div></div>
+            <div id="timeline-list" class="timeline empty-state">No timeline available.</div>
+          </section>
+
+          <section id="view-agents" class="tab-view panel hidden">
+            <div class="panel-heading"><div><p class="eyebrow">ORCHESTRATION</p><h2>Agent execution</h2></div></div>
+            <div id="agent-list" class="agent-list empty-state">No agent run available.</div>
+          </section>
+
+          <section id="view-remediation" class="tab-view panel hidden">
+            <div class="panel-heading"><div><p class="eyebrow">POLICY GATE</p><h2>Remediation</h2></div></div>
+            <div id="remediation-panel" class="empty-state">No remediation plan available.</div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="incident-dialog">
+      <form id="incident-form">
+        <div class="dialog-heading"><h2>Create incident</h2><button id="close-incident-dialog" type="button" aria-label="Close create incident dialog">×</button></div>
+        <label>Title<input name="title" required maxlength="240" placeholder="Checkout latency elevated"></label>
+        <label>Affected service<input name="affected_service" maxlength="120" placeholder="frontend"></label>
+        <label>Summary<textarea name="summary" maxlength="4000" rows="3"></textarea></label>
+        <label>Window (minutes)<input name="minutes" type="number" min="2" max="1440" value="10" required></label>
+        <label>Severity<select name="severity"><option>sev1</option><option selected>sev2</option><option>sev3</option><option>sev4</option></select></label>
+        <div class="dialog-actions"><button id="cancel-incident-dialog" type="button" class="button">Cancel</button><button type="submit" class="button primary">Create</button></div>
+      </form>
+    </dialog>
+    <dialog id="auth-dialog">
+      <form id="auth-form">
+        <div class="dialog-heading"><h2>Connect to RootLens</h2></div>
+        <p>Enter a bearer token issued by your RootLens administrator. The token is kept in memory and is cleared when this tab closes.</p>
+        <label>API token<input name="token" type="password" minlength="32" maxlength="4096" autocomplete="off" required></label>
+        <div class="dialog-actions"><button id="cancel-auth-dialog" type="button" class="button">Cancel</button><button type="submit" class="button primary">Connect</button></div>
+      </form>
+    </dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

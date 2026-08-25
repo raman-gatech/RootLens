@@ -1,9 +1,8 @@
 # Milestone 4 fault-injection runbook
 
-Milestone 4 provides a reproducible Kubernetes environment and five controlled
-Chaos Mesh experiments. It exists to create labeled incident data for later
-evaluation; RootLens does not receive the labels and does not yet diagnose or
-remediate incidents.
+The fault harness provides a reproducible Kubernetes environment and twenty
+controlled Chaos Mesh experiment families. It creates labeled evaluation data;
+RootLens never receives the labels.
 
 ## Pinned environment
 
@@ -21,19 +20,22 @@ acceptance checks. The Kubernetes collector forwards OTLP telemetry to the
 RootLens collector on the Docker host. The demo frontend is available at
 <http://localhost:18080>.
 
+The same command creates a namespace-scoped, read-only `rootlens-reader`
+service account and exports only its token and cluster CA to the ignored
+`.runtime/kubernetes` directory (0700 directory, 0600 files). The API container
+mounts those files read-only and reaches the fixed local API endpoint through a
+certificate-valid hostname. The role permits pod GET/list/watch only; it cannot
+create, patch, delete, or read Secrets.
+
 ## Fault catalog
 
-| Fault | Target | Default effect |
-| --- | --- | --- |
-| `pod_kill` | checkout | kill one selected pod |
-| `cpu_stress` | payment | one worker at 80% load |
-| `network_latency` | checkout to payment | 1500 ms with 100 ms jitter |
-| `packet_loss` | checkout to payment | 30% loss |
-| `http_delay` | frontend-proxy GET requests on port 8080 | 1000 ms delay |
+The catalog contains three pod actions, two stressors, six network actions,
+four HTTP actions, two DNS actions, two I/O actions, and one clock-skew action.
+Defaults remain namespace-scoped, bounded to 5–600 seconds, and selected by a
+known `app.kubernetes.io/component` label.
 
-Every manifest is namespace-scoped to `otel-demo`, selects a known component,
-has a duration between 5 and 600 seconds, carries a unique experiment label,
-and is validated by the Kubernetes API before a validation run succeeds.
+Every manifest carries a unique experiment label and must pass both Pydantic
+validation and the live Kubernetes admission webhook before validation succeeds.
 
 ## Ground-truth isolation
 

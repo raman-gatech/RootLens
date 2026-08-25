@@ -14,11 +14,21 @@ from sqlalchemy.ext.asyncio import (
 class Database:
     """Own the application's async database engine and session factory."""
 
-    def __init__(self, database_url: str) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        pool_size: int = 10,
+        max_overflow: int = 10,
+        pool_timeout: float = 10.0,
+    ) -> None:
         self.engine: AsyncEngine = create_async_engine(
             database_url,
             pool_pre_ping=True,
             pool_recycle=300,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_timeout=pool_timeout,
         )
         self._sessions = async_sessionmaker(self.engine, expire_on_commit=False)
 

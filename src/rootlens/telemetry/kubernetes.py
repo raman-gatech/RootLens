@@ -171,6 +171,10 @@ def _pod(value: object) -> PodSnapshot:
     metadata = mapping(item.get("metadata"), TelemetrySource.KUBERNETES, "pod.metadata")
     spec = _optional_mapping(item.get("spec"))
     status = _optional_mapping(item.get("status"))
+    owner_references = metadata.get("ownerReferences")
+    owner: Mapping[str, object] = {}
+    if isinstance(owner_references, list) and owner_references:
+        owner = _optional_mapping(owner_references[0])
     return PodSnapshot(
         namespace=optional_text(metadata.get("namespace")) or "default",
         name=optional_text(metadata.get("name")) or "unknown",
@@ -179,6 +183,8 @@ def _pod(value: object) -> PodSnapshot:
         node_name=optional_text(spec.get("nodeName")),
         labels=string_map(metadata.get("labels")),
         created_at=_timestamp(metadata.get("creationTimestamp")),
+        owner_kind=optional_text(owner.get("kind")),
+        owner_name=optional_text(owner.get("name")),
     )
 
 

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -24,3 +28,78 @@ jobs:
         run: make bootstrap
       - name: Quality gates
         run: make check
+      - name: Dependency vulnerability audit
+        run: |
+          .venv/bin/pip install pip-audit==2.10.1
+          .venv/bin/pip-audit --strict --desc=off --requirement requirements.lock
+      - name: Static security analysis
+        run: |
+          .venv/bin/pip install bandit==1.9.4
+          .venv/bin/bandit -q -r src experiment_controller evaluation_harness
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Bootstrap
+        run: make bootstrap
+      - name: Install Chromium
+        run: .venv/bin/python -m playwright install --with-deps chromium
+      - name: Browser regression tests
+        run: make e2e E2E_BROWSER_ARGS=
+
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
+        env:
+          POSTGRES_DB: rootlens
+          POSTGRES_USER: rootlens
+          POSTGRES_PASSWORD: rootlens-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rootlens -d rootlens"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Bootstrap
+        run: make bootstrap
+      - name: Upgrade, downgrade, and re-upgrade schema
+        env:
+          ROOTLENS_DATABASE_URL: postgresql+asyncpg://rootlens:rootlens-ci-only@127.0.0.1:5432/rootlens
+        run: |
+          .venv/bin/alembic upgrade head
+          .venv/bin/alembic downgrade base
+          .venv/bin/alembic upgrade head
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build hardened runtime image
+        run: >-
+          docker build
+          --build-arg VCS_REF=${{ github.sha }}
+          --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          --tag rootlens:${{ github.sha }} .
+      - name: Verify runtime contents and identity
+        run: |
+          test "$(docker image inspect rootlens:${{ github.sha }} --format '{{.Config.User}}')" = rootlens
+          docker run --rm rootlens:${{ github.sha }} python -c "import rootlens; assert rootlens.__version__ == '1.0.0'"
