@@ -81,8 +81,7 @@ k8s-tools:
 k8s-core-up: runtime-dir
 	$(COMPOSE) down --remove-orphans
 	$(COMPOSE) build rootlens-api
-	$(COMPOSE) up --detach --no-build --wait rootlens-db prometheus tempo loki grafana otel-collector rootlens-api
-	$(COMPOSE) run --rm rootlens-api alembic upgrade head
+	$(COMPOSE) up --detach --no-build --wait rootlens-db prometheus tempo loki grafana otel-collector
 
 k8s-up: k8s-tools k8s-core-up
 	@if ! $(KIND) get clusters | rg --quiet '^rootlens$$'; then \
@@ -91,6 +90,7 @@ k8s-up: k8s-tools k8s-core-up
 	kubectl --context kind-rootlens apply --filename infrastructure/kubernetes/namespaces.yaml
 	kubectl --context kind-rootlens apply --filename infrastructure/kubernetes/rootlens-reader-rbac.yaml
 	$(VENV_PYTHON) scripts/export_kubernetes_reader.py
+	$(COMPOSE) run --rm rootlens-api alembic upgrade head
 	$(COMPOSE) up --detach --no-build --force-recreate --wait rootlens-api
 	$(HELM) repo add chaos-mesh https://charts.chaos-mesh.org --force-update
 	$(HELM) repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts --force-update
