@@ -17,7 +17,7 @@ COMPOSE := ROOTLENS_PROJECT_DIR="$(CURDIR)" docker compose \
 	-f vendor/opentelemetry-demo/compose.yaml \
 	-f compose.yaml
 
-.PHONY: anomaly-smoke benchmark bootstrap chaos-smoke chaos-validate check compose-config down e2e format gateway-smoke k8s-core-up k8s-down k8s-smoke k8s-tools k8s-up lint migrate runtime-dir smoke test topology-smoke typecheck up
+.PHONY: anomaly-smoke benchmark bootstrap chaos-smoke chaos-validate check compose-config down e2e format gateway-smoke k8s-core-up k8s-down k8s-smoke k8s-tools k8s-up lint live-evaluation migrate runtime-dir smoke test topology-smoke typecheck up
 
 bootstrap:
 	git submodule update --init --recursive
@@ -113,6 +113,10 @@ chaos-smoke:
 
 benchmark:
 	$(VENV_PYTHON) -m evaluation_harness.cli --repetitions 5 --output docs/evaluation-results.json
+
+live-evaluation:
+	$(VENV_PYTHON) -m evaluation_harness.live_cli --context kind-rootlens --ground-truth-dir '$(GROUND_TRUTH_DIR)' --repetitions 5 --duration 5 --output docs/evaluation-live-results.json --publish
+	PYTHONPATH='$(CURDIR)' $(VENV_PYTHON) scripts/verify_ground_truth.py '$(GROUND_TRUTH_DIR)' --expected-experiments 100
 
 k8s-down:
 	$(KIND) delete cluster --name rootlens

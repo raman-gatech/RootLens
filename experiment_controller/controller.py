@@ -21,6 +21,8 @@ class ExperimentRunner(Protocol):
 
     async def apply(self, manifest: str) -> None: ...
 
+    async def wait_injected(self, manifest: str) -> None: ...
+
     async def delete(self, manifest: str) -> None: ...
 
 
@@ -40,13 +42,16 @@ class ExperimentController:
         started_at = datetime.now(UTC)
         self._record(GroundTruthEventType.PLANNED, spec, digest)
         applied = False
+        run_error: BaseException | None = None
         try:
             await self._runner.require_target(spec)
             await self._runner.apply(manifest)
             applied = True
+            await self._runner.wait_injected(manifest)
             self._record(GroundTruthEventType.APPLIED, spec, digest)
             await asyncio.sleep(spec.duration_seconds)
         except BaseException as error:
+            run_error = error
             self._record(GroundTruthEventType.FAILED, spec, digest, type(error).__name__)
             raise
         finally:
@@ -60,7 +65,8 @@ class ExperimentController:
                         digest,
                         f"cleanup:{type(error).__name__}",
                     )
-                    raise
+                    if run_error is None:
+                        raise
 
         finished_at = datetime.now(UTC)
         self._record(GroundTruthEventType.RECOVERED, spec, digest)

@@ -56,9 +56,9 @@ class ExperimentSpec(BaseModel):
     http_method: str = "GET"
     http_path: str = "*"
     dns_patterns: tuple[str, ...] = ("*.",)
-    # These are workload paths inside a disposable Chaos Mesh target pod.
-    io_volume_path: str = "/tmp"  # nosec B108
-    io_path: str = "/tmp/*"  # nosec B108
+    # These paths refer to the dedicated disposable volume in the demo chart.
+    io_volume_path: str = "/var/rootlens-chaos"
+    io_path: str = "/var/rootlens-chaos/*"
     io_delay_ms: int = Field(default=500, ge=1, le=30_000)
     io_errno: int = Field(default=5, ge=1, le=255)
     time_offset: str = "5m"

@@ -9,6 +9,15 @@ components:
     enabled: false
     useDefault:
       env: false
+  cart:
+    # Chaos Mesh IOChaos requires a real volume mount. Keep the benchmark target
+    # isolated from application and service-account data.
+    additionalVolumes:
+      - name: rootlens-chaos-io
+        emptyDir: {}
+    additionalVolumeMounts:
+      - name: rootlens-chaos-io
+        mountPath: /var/rootlens-chaos
   flagd-ui:
     enabled: false
     useDefault:
@@ -27,9 +36,8 @@ components:
       env: false
   frontend-proxy:
     service:
-      type: NodePort
+      type: ClusterIP
       port: 8080
-      nodePort: 30080
 
 opentelemetry-collector:
   enabled: true

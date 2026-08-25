@@ -127,6 +127,9 @@ spec:
             httpGet:
               path: /health/ready
               port: http
+              httpHeaders: &probe-host
+                - name: Host
+                  value: rootlens.example.com
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 3
@@ -135,6 +138,7 @@ spec:
             httpGet:
               path: /health/live
               port: http
+              httpHeaders: *probe-host
             initialDelaySeconds: 10
             periodSeconds: 20
             timeoutSeconds: 3
@@ -143,6 +147,7 @@ spec:
             httpGet:
               path: /health/live
               port: http
+              httpHeaders: *probe-host
             periodSeconds: 3
             failureThreshold: 20
           securityContext:

@@ -11,6 +11,9 @@ and secrets supplied by the deployment platform.
    the template image tag with its immutable digest.
 2. Back up PostgreSQL, run `migrate-job.yaml`, and require it to complete before
    rolling out the Deployment. `/health/ready` rejects the wrong schema revision.
+   A database administrator must install the `vector` extension in the target
+   database once; schema migrations then run as the least-privilege application
+   role.
 3. Replace every example hostname and backend URL. Label only the ingress
    namespace with `rootlens.io/api-access=true`.
 4. Create `rootlens-runtime` with `database-url` and, only when selected,
@@ -77,3 +80,9 @@ The local deterministic provider is suitable for reproducible operation without
 external model availability. When the OpenAI provider is selected, startup fails
 unless a key is present; configure provider timeouts and investigate model/cost
 alerts before enabling it for on-call workflows.
+
+For a local production-acceptance test, `kind-tls-ingress.yaml` provides a
+non-root, read-only TLS edge at `rootlens.localhost`. Its certificate must be
+supplied as the `rootlens-tls` Secret. This acceptance edge is not a replacement
+for public DNS, a publicly trusted certificate, or the managed ingress used by a
+real production cluster.

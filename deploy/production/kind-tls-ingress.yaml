@@ -1,0 +1,132 @@
+# Local production-acceptance edge. Public deployments should use their managed
+# ingress and a publicly trusted certificate instead.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rootlens-ingress
+  labels:
+    rootlens.io/api-access: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rootlens-nginx
+  namespace: rootlens-ingress
+data:
+  nginx.conf: |
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr notice;
+    events {}
+    http {
+      access_log /dev/stdout;
+      client_body_temp_path /tmp/client-body;
+      fastcgi_temp_path /tmp/fastcgi;
+      proxy_temp_path /tmp/proxy;
+      scgi_temp_path /tmp/scgi;
+      uwsgi_temp_path /tmp/uwsgi;
+      limit_req_zone $binary_remote_addr zone=api:10m rate=20r/s;
+      server {
+        listen 8443 ssl;
+        server_name rootlens.localhost;
+        ssl_certificate /etc/rootlens-tls/tls.crt;
+        ssl_certificate_key /etc/rootlens-tls/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_session_tickets off;
+        client_max_body_size 1m;
+        location / {
+          limit_req zone=api burst=40 nodelay;
+          proxy_set_header Host rootlens.localhost;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto https;
+          proxy_set_header X-Request-ID $request_id;
+          proxy_pass http://rootlens-api.rootlens-system.svc.cluster.local:80;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rootlens-ingress
+  namespace: rootlens-ingress
+  labels: &labels
+    app.kubernetes.io/name: rootlens-ingress
+    app.kubernetes.io/part-of: rootlens
+spec:
+  replicas: 2
+  selector:
+    matchLabels: *labels
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged@sha256:27985295bdb22a1ef8f712863210bd5877c0f3006494a593e86b3fe0fa55467e
+          args: ["nginx", "-c", "/etc/rootlens-nginx/nginx.conf", "-g", "daemon off;"]
+          ports:
+            - name: https
+              containerPort: 8443
+          readinessProbe:
+            tcpSocket:
+              port: https
+          livenessProbe:
+            tcpSocket:
+              port: https
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/rootlens-nginx
+              readOnly: true
+            - name: tls
+              mountPath: /etc/rootlens-tls
+              readOnly: true
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: rootlens-nginx
+        - name: tls
+          secret:
+            secretName: rootlens-tls
+            defaultMode: 0440
+        - name: temporary
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rootlens-ingress
+  namespace: rootlens-ingress
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: rootlens-ingress
+    app.kubernetes.io/part-of: rootlens
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      nodePort: 30080

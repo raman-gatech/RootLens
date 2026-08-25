@@ -1,0 +1,114 @@
+name: Live Evaluation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/live-evaluation.yaml"
+      - "evaluation_harness/**"
+      - "experiment_controller/**"
+      - "infrastructure/kubernetes/**"
+      - "scripts/verify_ground_truth.py"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-evaluation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  hundred-live-incidents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Bootstrap
+        run: make bootstrap
+
+      - name: Start observability and native AMD64 Kubernetes stacks
+        run: make k8s-up
+
+      - name: Connect Kubernetes telemetry exporter to the host collector
+        run: |
+          gateway=$(docker inspect rootlens-control-plane --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}')
+          test -n "$gateway"
+          kubectl --context kind-rootlens --namespace otel-demo patch deployment otel-collector \
+            --type merge \
+            --patch "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$gateway\",\"hostnames\":[\"host.docker.internal\"]}]}}}}"
+          kubectl --context kind-rootlens --namespace otel-demo rollout status deployment/otel-collector --timeout=5m
+          make gateway-smoke topology-smoke
+
+      - name: Run 100 confirmed live incidents
+        env:
+          GROUND_TRUTH_DIR: ${{ runner.temp }}/rootlens-ground-truth
+        run: |
+          install -d -m 700 "$GROUND_TRUTH_DIR"
+          .venv/bin/python -m evaluation_harness.live_cli \
+            --context kind-rootlens \
+            --base-url http://127.0.0.1:8000 \
+            --ground-truth-dir "$GROUND_TRUTH_DIR" \
+            --repetitions 5 \
+            --duration 5 \
+            --settle-seconds 2 \
+            --output docs/evaluation-live-results.json \
+            --publish
+          PYTHONPATH="$PWD" .venv/bin/python scripts/verify_ground_truth.py \
+            "$GROUND_TRUTH_DIR" --expected-experiments 100
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("docs/evaluation-live-results.json").read_text())
+          assert report["execution_mode"] == "live"
+          assert report["fault_type_count"] == 20
+          assert report["repetitions_per_fault"] == 5
+          assert report["incident_count"] == 100
+          assert report["methods"]["E_rootlens"]["trials"] == 100
+          assert "ground_truth" not in json.dumps(report)
+          PY
+
+      - name: Upload aggregate evaluation
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootlens-live-evaluation-${{ github.run_id }}
+          path: docs/evaluation-live-results.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish aggregate evaluation to main
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/evaluation-live-results.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Publish 100-incident live evaluation"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Preserve diagnostics on failure
+        if: failure()
+        run: |
+          kubectl --context kind-rootlens get pods --all-namespaces --output wide || true
+          kubectl --context kind-rootlens get podchaos,stresschaos,networkchaos,httpchaos,dnschaos,iochaos,timechaos \
+            --all-namespaces --output yaml || true
+          kubectl --context kind-rootlens --namespace chaos-mesh logs deployment/chaos-controller-manager \
+            --tail=500 || true
+
+      - name: Stop ephemeral evaluation infrastructure
+        if: always()
+        run: |
+          make k8s-down || true
+          make down || true

@@ -40,6 +40,16 @@ class KubectlRunner:
     async def apply(self, manifest: str) -> None:
         await self._run("apply", "--filename", "-", stdin=manifest)
 
+    async def wait_injected(self, manifest: str) -> None:
+        await self._run(
+            "wait",
+            "--for=condition=AllInjected=True",
+            "--timeout=60s",
+            "--filename",
+            "-",
+            stdin=manifest,
+        )
+
     async def delete(self, manifest: str) -> None:
         await self._run(
             "delete",

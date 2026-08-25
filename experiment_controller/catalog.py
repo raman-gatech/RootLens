@@ -88,9 +88,8 @@ def scenario(fault_type: FaultType, *, duration_seconds: int = 30) -> Experiment
             fault_type=fault_type,
             target_service="cart",
             duration_seconds=duration_seconds,
-            # These are workload paths inside a disposable Chaos Mesh target pod.
-            io_volume_path="/tmp",  # nosec B108
-            io_path="/tmp/*",  # nosec B108
+            io_volume_path="/var/rootlens-chaos",
+            io_path="/var/rootlens-chaos/*",
         )
     if fault_type is FaultType.TIME_SKEW:
         return ExperimentSpec(

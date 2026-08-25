@@ -26,6 +26,9 @@ class FakeRunner:
     async def apply(self, _: str) -> None:
         self.operations.append("apply")
 
+    async def wait_injected(self, _: str) -> None:
+        self.operations.append("injected")
+
     async def delete(self, _: str) -> None:
         self.operations.append("delete")
 
@@ -34,6 +37,11 @@ class FailingDeleteRunner(FakeRunner):
     async def delete(self, manifest: str) -> None:
         await super().delete(manifest)
         raise RuntimeError("simulated cleanup failure")
+
+
+class FailingInjectionAndDeleteRunner(FailingDeleteRunner):
+    async def wait_injected(self, _: str) -> None:
+        raise TimeoutError("simulated injection timeout")
 
 
 async def test_controller_journals_truth_and_returns_redacted_receipt(
@@ -49,7 +57,7 @@ async def test_controller_journals_truth_and_returns_redacted_receipt(
 
     receipt = await controller.run(spec)
 
-    assert runner.operations == ["target", "apply", "delete"]
+    assert runner.operations == ["target", "apply", "injected", "delete"]
     sleep.assert_awaited_once_with(5)
     assert "fault_type" not in receipt.model_dump()
     assert "target_service" not in receipt.model_dump()
@@ -77,6 +85,20 @@ async def test_controller_records_cleanup_failure_and_never_claims_recovery(
         GroundTruthEvent.model_validate_json(line) for line in journal.path.read_text().splitlines()
     ]
     assert [event.event.value for event in events] == ["planned", "applied", "failed"]
+    assert events[-1].detail == "cleanup:RuntimeError"
+
+
+async def test_cleanup_failure_does_not_mask_injection_failure(tmp_path: Path) -> None:
+    journal = GroundTruthJournal(tmp_path / "isolated")
+    controller = ExperimentController(runner=FailingInjectionAndDeleteRunner(), journal=journal)
+
+    with pytest.raises(TimeoutError, match="simulated injection timeout"):
+        await controller.run(scenario(FaultType.IO_FAULT, duration_seconds=5))
+
+    events = [
+        GroundTruthEvent.model_validate_json(line) for line in journal.path.read_text().splitlines()
+    ]
+    assert [event.event.value for event in events] == ["planned", "failed", "failed"]
     assert events[-1].detail == "cleanup:RuntimeError"
 
 

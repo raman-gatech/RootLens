@@ -52,8 +52,8 @@ def run_benchmark(*, repetitions: int = 5) -> EvaluationReport:
         fault_type_count=20,
         repetitions_per_fault=repetitions,
         incident_count=len(dataset),
-        methods={name: _aggregate(trials) for name, trials in method_trials.items()},
-        ablations={name: _aggregate(trials) for name, trials in ablation_trials.items()},
+        methods={name: aggregate_trials(trials) for name, trials in method_trials.items()},
+        ablations={name: aggregate_trials(trials) for name, trials in ablation_trials.items()},
         notes=(
             "All 20 Chaos Mesh manifests passed Kubernetes server-side dry-run validation.",
             "This report is deterministic evidence replay, not 100 live fault injections.",
@@ -204,7 +204,10 @@ def _filter_evidence(
     return tuple(item for item in evidence if item.source is not removed)
 
 
-def _aggregate(trials: tuple[TrialResult, ...]) -> EvaluationMetrics:
+def aggregate_trials(trials: tuple[TrialResult, ...]) -> EvaluationMetrics:
+    """Reduce private per-case observations into publishable aggregate metrics."""
+    if not trials:
+        raise ValueError("at least one trial is required")
     top1 = sum(
         bool(item.predictions) and item.predictions[0] == item.ground_truth for item in trials
     )

@@ -75,3 +75,10 @@ def test_manifest_serialization_and_digest_are_deterministic() -> None:
 
     assert first == second
     assert manifest_digest(first) == manifest_digest(second)
+
+
+def test_io_faults_target_the_dedicated_disposable_volume() -> None:
+    for fault_type in (FaultType.IO_LATENCY, FaultType.IO_FAULT):
+        chaos_spec = render_manifest(scenario(fault_type))["spec"]
+        assert chaos_spec["volumePath"] == "/var/rootlens-chaos"
+        assert chaos_spec["path"] == "/var/rootlens-chaos/*"

@@ -18,4 +18,4 @@ chaosDaemon:
 dashboard:
   create: false
 dnsServer:
-  create: false
+  create: true
