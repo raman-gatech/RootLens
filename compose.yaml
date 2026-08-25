@@ -1,0 +1,155 @@
+name: rootlens
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  rootlens-db:
+    image: postgres:18.4
+    environment:
+      POSTGRES_DB: ${ROOTLENS_POSTGRES_DB}
+      POSTGRES_USER: ${ROOTLENS_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ROOTLENS_POSTGRES_PASSWORD}
+    volumes:
+      - rootlens-postgres-data:/var/lib/postgresql
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ROOTLENS_POSTGRES_USER} -d ${ROOTLENS_POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+  rootlens-api:
+    build:
+      context: ${ROOTLENS_PROJECT_DIR}
+      dockerfile: Dockerfile
+    environment:
+      ROOTLENS_DATABASE_URL: ${ROOTLENS_DATABASE_URL}
+      ROOTLENS_ENVIRONMENT: ${ROOTLENS_ENVIRONMENT}
+      ROOTLENS_LOG_LEVEL: ${ROOTLENS_LOG_LEVEL}
+      ROOTLENS_OTLP_ENDPOINT: ${ROOTLENS_OTLP_ENDPOINT}
+      ROOTLENS_TELEMETRY_ENABLED: ${ROOTLENS_TELEMETRY_ENABLED}
+      ROOTLENS_PROMETHEUS_URL: ${ROOTLENS_PROMETHEUS_URL}
+      ROOTLENS_TEMPO_URL: ${ROOTLENS_TEMPO_URL}
+      ROOTLENS_LOKI_URL: ${ROOTLENS_LOKI_URL}
+    ports:
+      - "8000:8000"
+    depends_on:
+      rootlens-db:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/health/ready', timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+  otel-collector:
+    command:
+      - --config=/etc/rootlens/otel-collector.yaml
+    volumes:
+      - ${ROOTLENS_PROJECT_DIR}/infrastructure/otel-collector/config.yaml:/etc/rootlens/otel-collector.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "9464:9464"
+    depends_on:
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.13.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ${ROOTLENS_PROJECT_DIR}/infrastructure/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+  tempo:
+    image: grafana/tempo:2.10.7
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ${ROOTLENS_PROJECT_DIR}/infrastructure/tempo/tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+    restart: unless-stopped
+    logging: *default-logging
+
+  loki:
+    image: grafana/loki:3.7.2
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ${ROOTLENS_PROJECT_DIR}/infrastructure/loki/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:13.1.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - ${ROOTLENS_PROJECT_DIR}/infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  grafana-data:
+  loki-data:
+  prometheus-data:
+  rootlens-postgres-data:
+  tempo-data:

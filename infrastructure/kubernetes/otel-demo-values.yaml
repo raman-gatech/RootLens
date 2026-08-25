@@ -1,0 +1,101 @@
+# OpenTelemetry Demo chart 0.41.0 / application 3.0.0.
+# Application telemetry is forwarded to the RootLens Collector on the Docker host.
+components:
+  agent:
+    enabled: false
+    useDefault:
+      env: false
+  chatbot:
+    enabled: false
+    useDefault:
+      env: false
+  flagd-ui:
+    enabled: false
+    useDefault:
+      env: false
+  mcp:
+    enabled: false
+    useDefault:
+      env: false
+  opamp-server:
+    enabled: false
+    useDefault:
+      env: false
+  telemetry-docs:
+    enabled: false
+    useDefault:
+      env: false
+  frontend-proxy:
+    service:
+      type: NodePort
+      port: 8080
+      nodePort: 30080
+
+opentelemetry-collector:
+  enabled: true
+  mode: deployment
+  presets:
+    hostMetrics:
+      enabled: false
+    kubernetesAttributes:
+      enabled: false
+    kubeletMetrics:
+      enabled: false
+    clusterMetrics:
+      enabled: false
+    annotationDiscovery:
+      metrics:
+        enabled: false
+  resources:
+    limits:
+      memory: 256Mi
+  alternateConfig:
+    extensions:
+      health_check:
+        endpoint: ${env:MY_POD_IP}:13133
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: ${env:MY_POD_IP}:4317
+          http:
+            endpoint: ${env:MY_POD_IP}:4318
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      batch: {}
+    exporters:
+      otlp/rootlens:
+        endpoint: host.docker.internal:4317
+        tls:
+          insecure: true
+        sending_queue:
+          enabled: true
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/rootlens]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/rootlens]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/rootlens]
+
+otel-ebpf-profiler:
+  enabled: false
+jaeger:
+  enabled: false
+prometheus:
+  enabled: false
+grafana:
+  enabled: false
+opensearch:
+  enabled: false

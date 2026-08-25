@@ -1,0 +1,21 @@
+# Chaos Mesh chart/application 2.8.4, scoped to explicitly annotated namespaces.
+controllerManager:
+  replicaCount: 1
+  enableFilterNamespace: true
+  leaderElection:
+    enabled: false
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+chaosDaemon:
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+dashboard:
+  create: false
+dnsServer:
+  create: false
