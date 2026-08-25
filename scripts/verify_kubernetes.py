@@ -4,6 +4,7 @@
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -82,9 +83,7 @@ def verify() -> None:
     )
     print("PASS Chaos Mesh controller and daemon")
 
-    with urlopen("http://localhost:18080", timeout=10) as response:
-        if response.status != 200:
-            raise RuntimeError(f"frontend returned HTTP {response.status}")
+    _wait_for_frontend()
     print("PASS Kubernetes demo frontend")
 
     for fault in FaultType:
@@ -105,6 +104,22 @@ def verify() -> None:
             text=True,
         )
     print(f"PASS all {len(FaultType)} fault manifests passed server-side validation")
+
+
+def _wait_for_frontend(*, timeout_seconds: float = 60) -> None:
+    """Allow kind's NodePort forwarding to settle after Helm reports ready."""
+    deadline = time.monotonic() + timeout_seconds
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with urlopen("http://localhost:18080", timeout=5) as response:
+                if response.status == 200:
+                    return
+                last_error = RuntimeError(f"frontend returned HTTP {response.status}")
+        except Exception as error:  # Network errors differ across host platforms.
+            last_error = error
+        time.sleep(2)
+    raise RuntimeError("Kubernetes demo frontend did not become reachable") from last_error
 
 
 def main() -> int:
