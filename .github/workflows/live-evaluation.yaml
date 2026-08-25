@@ -101,6 +101,11 @@ jobs:
       - name: Preserve diagnostics on failure
         if: failure()
         run: |
+          docker compose --project-name rootlens \
+            --env-file vendor/opentelemetry-demo/.env \
+            --env-file .env.compose \
+            -f vendor/opentelemetry-demo/compose.yaml \
+            -f compose.yaml logs --tail=500 rootlens-api || true
           kubectl --context kind-rootlens get pods --all-namespaces --output wide || true
           kubectl --context kind-rootlens get podchaos,stresschaos,networkchaos,httpchaos,dnschaos,iochaos,timechaos \
             --all-namespaces --output yaml || true

@@ -3,6 +3,7 @@ PYTHON ?= python3
 VENV := .venv
 VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
+RUNTIME_UID := $(shell id -u)
 KIND := .tools/bin/kind
 HELM := .tools/bin/helm
 KIND_NODE_IMAGE := kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
@@ -10,7 +11,7 @@ OTEL_DEMO_CHART_VERSION := 0.41.0
 CHAOS_MESH_CHART_VERSION := 2.8.4
 GROUND_TRUTH_DIR ?= $(abspath ../.rootlens-ground-truth)
 E2E_BROWSER_ARGS ?= --browser-channel chrome
-COMPOSE := ROOTLENS_PROJECT_DIR="$(CURDIR)" docker compose \
+COMPOSE := ROOTLENS_PROJECT_DIR="$(CURDIR)" ROOTLENS_RUNTIME_UID="$(RUNTIME_UID)" docker compose \
 	--project-name rootlens \
 	--env-file vendor/opentelemetry-demo/.env \
 	--env-file .env.compose \
@@ -84,7 +85,7 @@ k8s-core-up: runtime-dir
 	$(COMPOSE) up --detach --no-build --wait rootlens-db prometheus tempo loki grafana otel-collector
 
 k8s-up: k8s-tools k8s-core-up
-	@if ! $(KIND) get clusters | rg --quiet '^rootlens$$'; then \
+	@if ! $(KIND) get clusters | grep --quiet '^rootlens$$'; then \
 		$(KIND) create cluster --image '$(KIND_NODE_IMAGE)' --config infrastructure/kubernetes/kind-config.yaml; \
 	fi
 	kubectl --context kind-rootlens apply --filename infrastructure/kubernetes/namespaces.yaml

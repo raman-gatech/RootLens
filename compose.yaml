@@ -29,6 +29,9 @@ services:
     build:
       context: ${ROOTLENS_PROJECT_DIR}
       dockerfile: Dockerfile
+    # Local bind-mounted credentials remain 0600 and are read by their owning
+    # host UID. The production image and Kubernetes deployment stay UID 10001.
+    user: "${ROOTLENS_RUNTIME_UID:-10001}:10001"
     environment:
       ROOTLENS_DATABASE_URL: ${ROOTLENS_DATABASE_URL}
       ROOTLENS_ENVIRONMENT: ${ROOTLENS_ENVIRONMENT}
