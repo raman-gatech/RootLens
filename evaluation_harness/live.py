@@ -13,6 +13,7 @@ from uuid import UUID
 import httpx
 
 from evaluation_harness.contracts import TrialResult
+from evaluation_harness.openai_live import OpenAILiveBaselineSuite
 from evaluation_harness.runner import aggregate_trials
 from experiment_controller.catalog import scenario
 from experiment_controller.contracts import FaultType, GroundTruthEventType
@@ -109,8 +110,9 @@ async def run_live_evaluation(
     publish: bool = False,
     progress: ProgressCallback | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    openai_suite: OpenAILiveBaselineSuite | None = None,
 ) -> EvaluationReport:
-    """Run every fault family and expose only aggregate RootLens accuracy."""
+    """Run every fault family and expose only aggregate method accuracy."""
     if not 1 <= repetitions <= 20:
         raise ValueError("repetitions must be between 1 and 20")
     if not 5 <= duration_seconds <= 600:
@@ -122,7 +124,7 @@ async def run_live_evaluation(
         runner=KubectlRunner(context=context),
         journal=GroundTruthJournal(ground_truth_directory),
     )
-    trials: list[TrialResult] = []
+    method_trials: dict[str, list[TrialResult]] = {}
     total = len(FaultType) * repetitions
     async with RootLensClient(base_url=base_url, token=token, transport=transport) as client:
         ordinal = 0
@@ -141,29 +143,54 @@ async def run_live_evaluation(
                     finished_at=receipt.finished_at,
                 )
                 investigation = await client.investigate(incident.id)
-                trials.append(
-                    _trial(
+                case_id = f"live-{repetition:02d}-{ordinal:03d}"
+                if openai_suite is None:
+                    trial = _trial(
                         ordinal=ordinal,
                         repetition=repetition,
                         ground_truth=spec.target_service,
                         investigation=investigation,
                     )
-                )
+                    method_trials.setdefault(trial.method, []).append(trial)
+                else:
+                    case_trials = await openai_suite.run(
+                        incident=incident,
+                        investigation=investigation,
+                        ground_truth=spec.target_service,
+                        case_id=case_id,
+                    )
+                    for method, trial in case_trials.items():
+                        method_trials.setdefault(method, []).append(trial)
                 if progress:
                     progress(ordinal, total)
 
+        openai_notes = (
+            (
+                f"OpenAI Responses API baselines used pinned model {openai_suite.model}.",
+                "D and E reuse the same specialist calls; E adds graph ranking and verification.",
+            )
+            if openai_suite is not None
+            else ()
+        )
         report = EvaluationReport(
-            dataset_version="rootlens-chaos-live-v1",
+            dataset_version=(
+                "rootlens-chaos-live-openai-v1"
+                if openai_suite is not None
+                else "rootlens-chaos-live-v1"
+            ),
             execution_mode="live",
             fault_type_count=len(FaultType),
             repetitions_per_fault=repetitions,
-            incident_count=len(trials),
-            methods={"E_rootlens": aggregate_trials(tuple(trials))},
+            incident_count=total,
+            methods={
+                name: aggregate_trials(tuple(trials)) for name, trials in method_trials.items()
+            },
             ablations={},
             notes=(
                 "Each trial required Chaos Mesh AllInjected=True and a recovered lifecycle.",
                 "RootLens received generic incident metadata without fault type or target service.",
                 "Published output excludes per-case predictions and hidden ground truth.",
+                *openai_notes,
             ),
         )
         if publish:

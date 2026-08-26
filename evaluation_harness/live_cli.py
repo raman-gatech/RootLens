@@ -5,6 +5,8 @@ import asyncio
 from pathlib import Path
 
 from evaluation_harness.live import run_live_evaluation
+from evaluation_harness.openai_live import DEFAULT_OPENAI_MODEL, OpenAILiveBaselineSuite
+from rootlens.investigation.provider import OpenAIResponsesProvider
 
 
 def _token(path: Path | None) -> str | None:
@@ -25,9 +27,19 @@ def main() -> int:
     parser.add_argument("--duration", type=int, default=5)
     parser.add_argument("--settle-seconds", type=float, default=2)
     parser.add_argument("--token-file", type=Path)
+    parser.add_argument("--openai-api-key-file", type=Path)
+    parser.add_argument("--openai-model", default=DEFAULT_OPENAI_MODEL)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
+
+    openai_suite = None
+    if args.openai_api_key_file is not None:
+        provider = OpenAIResponsesProvider(
+            api_key=_token(args.openai_api_key_file) or "",
+            model=args.openai_model,
+        )
+        openai_suite = OpenAILiveBaselineSuite(provider=provider, model=args.openai_model)
 
     report = asyncio.run(
         run_live_evaluation(
@@ -39,6 +51,7 @@ def main() -> int:
             settle_seconds=args.settle_seconds,
             token=_token(args.token_file),
             publish=args.publish,
+            openai_suite=openai_suite,
             progress=lambda current, total: print(
                 f"Completed blind live incident {current}/{total}", flush=True
             ),

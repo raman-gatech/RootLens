@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import defaultdict
 from typing import Protocol
@@ -158,12 +159,20 @@ class OpenAIResponsesProvider:
         api_key: str,
         model: str,
         timeout_seconds: float = 60,
+        max_retries: int = 2,
+        retry_backoff_seconds: float = 1,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        if not 0 <= max_retries <= 10:
+            raise ValueError("max_retries must be between 0 and 10")
+        if not 0 <= retry_backoff_seconds <= 30:
+            raise ValueError("retry_backoff_seconds must be between 0 and 30")
         self.name = f"openai-responses:{model}"
         self._api_key = api_key
         self._model = model
         self._timeout = timeout_seconds
+        self._max_retries = max_retries
+        self._retry_backoff_seconds = retry_backoff_seconds
         self._transport = transport
 
     async def synthesize(
@@ -206,12 +215,7 @@ class OpenAIResponsesProvider:
                 }
             },
         }
-        async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/responses",
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                json=payload,
-            )
+        response = await self._post_with_retry(payload)
         if response.status_code >= 400:
             raise ProviderError(f"OpenAI Responses API returned HTTP {response.status_code}")
         body = response.json()
@@ -258,6 +262,41 @@ class OpenAIResponsesProvider:
                 llm_calls=1, input_tokens=input_tokens, output_tokens=output_tokens
             ),
         )
+
+    async def _post_with_retry(self, payload: dict[str, object]) -> httpx.Response:
+        retryable_statuses = {408, 409, 429}
+        async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
+            for attempt in range(self._max_retries + 1):
+                try:
+                    response = await client.post(
+                        "https://api.openai.com/v1/responses",
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                        json=payload,
+                    )
+                except (httpx.TimeoutException, httpx.TransportError) as error:
+                    if attempt == self._max_retries:
+                        raise ProviderError(
+                            "OpenAI Responses API request failed after retries"
+                        ) from error
+                    await asyncio.sleep(self._retry_delay(attempt, None))
+                    continue
+                retryable = (
+                    response.status_code in retryable_statuses or response.status_code >= 500
+                )
+                if not retryable or attempt == self._max_retries:
+                    return response
+                await asyncio.sleep(self._retry_delay(attempt, response))
+        raise ProviderError("OpenAI Responses API retry loop ended unexpectedly")
+
+    def _retry_delay(self, attempt: int, response: httpx.Response | None) -> float:
+        if response is not None:
+            retry_after = response.headers.get("retry-after")
+            if retry_after is not None:
+                try:
+                    return min(30.0, max(0.0, float(retry_after)))
+                except ValueError:
+                    pass
+        return min(30.0, self._retry_backoff_seconds * float(2**attempt))
 
 
 def _failure_mode(item: Evidence) -> str:

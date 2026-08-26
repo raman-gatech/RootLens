@@ -107,6 +107,60 @@ async def test_openai_provider_uses_strict_schema_and_validates_evidence_ids() -
     assert result.usage.input_tokens == 10
 
 
+async def test_openai_provider_retries_transient_status() -> None:
+    evidence = _evidence(EvidenceOrigin.CURRENT, 0.8)
+    requests = 0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(429, headers={"retry-after": "0"})
+        output = {
+            "hypotheses": [
+                {
+                    "id": "service:checkout",
+                    "root_cause_service": "checkout",
+                    "component": "checkout",
+                    "failure_mode": "request failures",
+                    "description": "Grounded candidate",
+                    "predicted_observations": [],
+                    "evidence_for": [str(evidence.id)],
+                    "evidence_against": [],
+                    "confidence": 0.8,
+                    "status": "supported",
+                }
+            ]
+        }
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {"type": "output_text", "text": __import__("json").dumps(output)}
+                        ],
+                    }
+                ],
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+
+    provider = OpenAIResponsesProvider(
+        api_key="test",
+        model="test-model",
+        max_retries=1,
+        retry_backoff_seconds=0,
+        transport=httpx.MockTransport(respond),
+    )
+
+    result = await provider.synthesize(_incident(), (evidence,), generated_by=AgentRole.MANAGER)
+
+    assert requests == 2
+    assert result.hypotheses[0].root_cause_service == "checkout"
+
+
 def _incident() -> Incident:
     start = datetime(2026, 8, 25, 12, tzinfo=UTC)
     return Incident(
