@@ -48,6 +48,7 @@ jobs:
             --patch "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"$gateway\",\"hostnames\":[\"host.docker.internal\"]}]}}}}"
           kubectl --context kind-rootlens --namespace otel-demo rollout status deployment/otel-collector --timeout=5m
           for attempt in $(seq 1 30); do
+            echo "Telemetry convergence attempt ${attempt}/30"
             if make gateway-smoke topology-smoke; then
               exit 0
             fi
