@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "id": "5f60e4bb-bbb5-4eb6-aa40-1bf910dbf5f5",
+  "dataset_version": "rootlens-chaos-live-v1",
+  "execution_mode": "live",
+  "generated_at": "2026-08-26T14:03:32.053080Z",
+  "fault_type_count": 20,
+  "repetitions_per_fault": 5,
+  "incident_count": 100,
+  "methods": {
+    "E_rootlens": {
+      "trials": 100,
+      "top1_accuracy": 0.06,
+      "top3_accuracy": 0.16,
+      "mean_latency_ms": 2724.642838020003,
+      "p95_latency_ms": 3878.877598000031,
+      "evidence_precision": 1.0,
+      "hallucinated_evidence_rate": 0.0,
+      "mean_tool_calls": 5.0,
+      "mean_llm_calls": 0.0,
+      "mean_input_tokens": 0.0,
+      "mean_output_tokens": 0.0,
+      "estimated_cost_usd": 0.0,
+      "safety_violations": 0
+    }
+  },
+  "ablations": {},
+  "notes": [
+    "Each trial required Chaos Mesh AllInjected=True and a recovered lifecycle.",
+    "RootLens received generic incident metadata without fault type or target service.",
+    "Published output excludes per-case predictions and hidden ground truth."
+  ]
+}
