@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rootlens-api
+  namespace: rootlens-system
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - rootlens.example.com
+      secretName: rootlens-tls
+  rules:
+    - host: rootlens.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rootlens-api
+                port:
+                  name: http

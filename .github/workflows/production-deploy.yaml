@@ -1,0 +1,300 @@
+name: Production Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type deploy-production to authorize the rollout
+        required: true
+        type: string
+      image_digest:
+        description: Immutable signed RootLens image digest
+        required: true
+        default: sha256:dbfbd96abfb8267999de22e7d8335d9b9e8105ab94840ed7aa0fd0e756c93719
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rootlens-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrate and deploy immutable release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      ROOTLENS_IMAGE: ghcr.io/raman-gatech/rootlens@${{ inputs.image_digest }}
+      ROOTLENS_HOSTNAME: ${{ vars.ROOTLENS_HOSTNAME }}
+      ROOTLENS_INGRESS_CLASS: ${{ vars.ROOTLENS_INGRESS_CLASS }}
+      ROOTLENS_INGRESS_NAMESPACE: ${{ vars.ROOTLENS_INGRESS_NAMESPACE }}
+      ROOTLENS_KUBE_CONTEXT: ${{ vars.ROOTLENS_KUBE_CONTEXT }}
+      ROOTLENS_MONITORED_NAMESPACE: ${{ vars.ROOTLENS_MONITORED_NAMESPACE }}
+      ROOTLENS_OTLP_ENDPOINT: ${{ vars.ROOTLENS_OTLP_ENDPOINT }}
+      ROOTLENS_PROMETHEUS_URL: ${{ vars.ROOTLENS_PROMETHEUS_URL }}
+      ROOTLENS_TEMPO_URL: ${{ vars.ROOTLENS_TEMPO_URL }}
+      ROOTLENS_LOKI_URL: ${{ vars.ROOTLENS_LOKI_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require explicit authorization and protected inputs
+        env:
+          PRODUCTION_KUBECONFIG: ${{ secrets.PRODUCTION_KUBECONFIG }}
+          ROOTLENS_AUTH_CREDENTIALS: ${{ secrets.ROOTLENS_AUTH_CREDENTIALS }}
+          ROOTLENS_DATABASE_URL: ${{ secrets.ROOTLENS_DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ROOTLENS_SMOKE_TOKEN: ${{ secrets.ROOTLENS_SMOKE_TOKEN }}
+          ROOTLENS_TLS_CERTIFICATE: ${{ secrets.ROOTLENS_TLS_CERTIFICATE }}
+          ROOTLENS_TLS_PRIVATE_KEY: ${{ secrets.ROOTLENS_TLS_PRIVATE_KEY }}
+        run: |
+          kubeconfig_path="$RUNNER_TEMP/rootlens-production-kubeconfig"
+          echo "KUBECONFIG=$kubeconfig_path" >> "$GITHUB_ENV"
+          test "$GITHUB_REF" = refs/heads/main || {
+            echo "production deployments must run from main" >&2
+            exit 1
+          }
+          test "${{ inputs.confirmation }}" = deploy-production || {
+            echo "confirmation must be exactly deploy-production" >&2
+            exit 1
+          }
+          missing=0
+          for name in \
+            ROOTLENS_HOSTNAME ROOTLENS_INGRESS_CLASS ROOTLENS_INGRESS_NAMESPACE \
+            ROOTLENS_KUBE_CONTEXT ROOTLENS_MONITORED_NAMESPACE ROOTLENS_OTLP_ENDPOINT \
+            ROOTLENS_PROMETHEUS_URL ROOTLENS_TEMPO_URL ROOTLENS_LOKI_URL \
+            PRODUCTION_KUBECONFIG ROOTLENS_AUTH_CREDENTIALS ROOTLENS_DATABASE_URL \
+            OPENAI_API_KEY ROOTLENS_SMOKE_TOKEN ROOTLENS_TLS_CERTIFICATE \
+            ROOTLENS_TLS_PRIVATE_KEY
+          do
+            test -n "${!name:-}" || {
+              echo "protected production input $name is required" >&2
+              missing=1
+            }
+          done
+          test "$missing" -eq 0
+          umask 077
+          printf '%s' "$PRODUCTION_KUBECONFIG" > "$kubeconfig_path"
+          printf '%s' "$ROOTLENS_AUTH_CREDENTIALS" > "$RUNNER_TEMP/rootlens-auth.json"
+          printf '%s' "$ROOTLENS_DATABASE_URL" > "$RUNNER_TEMP/rootlens-database-url"
+          printf '%s' "$OPENAI_API_KEY" > "$RUNNER_TEMP/rootlens-openai-api-key"
+          printf '%s' "$ROOTLENS_SMOKE_TOKEN" > "$RUNNER_TEMP/rootlens-smoke-token"
+          printf '%s' "$ROOTLENS_TLS_CERTIFICATE" > "$RUNNER_TEMP/rootlens-tls.crt"
+          printf '%s' "$ROOTLENS_TLS_PRIVATE_KEY" > "$RUNNER_TEMP/rootlens-tls.key"
+          test "$(stat -c '%a' "$kubeconfig_path")" = 600
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Verify release-workflow signature on immutable image
+        run: |
+          cosign verify "$ROOTLENS_IMAGE" \
+            --certificate-identity-regexp '^https://github.com/raman-gatech/RootLens/.github/workflows/release.yaml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+
+      - name: Bootstrap deployment tooling
+        run: make bootstrap
+
+      - name: Validate secrets, TLS identity, and database transport
+        run: |
+          .venv/bin/python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+          from urllib.parse import parse_qs, urlsplit
+
+          runtime = Path(os.environ["RUNNER_TEMP"])
+          credentials = json.loads((runtime / "rootlens-auth.json").read_text())
+          entries = credentials.get("credentials")
+          assert isinstance(entries, list) and entries, "at least one credential is required"
+          allowed = {"read", "investigate", "ingest", "publish", "remediate"}
+          for entry in entries:
+              assert isinstance(entry.get("principal"), str) and entry["principal"]
+              assert re.fullmatch(r"[a-f0-9]{64}", entry.get("token_sha256", ""))
+              assert set(entry.get("permissions", [])) <= allowed
+          smoke = (runtime / "rootlens-smoke-token").read_text().strip()
+          smoke_digest = hashlib.sha256(smoke.encode()).hexdigest()
+          assert any(
+              entry["token_sha256"] == smoke_digest and "read" in entry["permissions"]
+              for entry in entries
+          ), "smoke token must match a credential with read permission"
+
+          database_url = (runtime / "rootlens-database-url").read_text().strip()
+          parsed = urlsplit(database_url)
+          assert parsed.scheme == "postgresql+asyncpg"
+          assert parsed.hostname not in {None, "localhost", "127.0.0.1", "::1"}
+          assert parsed.username and parsed.password and parsed.path not in {"", "/"}
+          ssl_mode = parse_qs(parsed.query).get("ssl", [])
+          assert ssl_mode == ["verify-full"]
+          PY
+          openssl x509 -in "$RUNNER_TEMP/rootlens-tls.crt" -noout \
+            -checkhost "$ROOTLENS_HOSTNAME"
+          openssl x509 -in "$RUNNER_TEMP/rootlens-tls.crt" -noout -checkend 2592000
+          certificate_key=$(openssl x509 -in "$RUNNER_TEMP/rootlens-tls.crt" -pubkey -noout | openssl sha256)
+          private_key=$(openssl pkey -in "$RUNNER_TEMP/rootlens-tls.key" -pubout | openssl sha256)
+          test "$certificate_key" = "$private_key"
+
+      - name: Select and authorize the production cluster
+        run: |
+          kubectl config use-context "$ROOTLENS_KUBE_CONTEXT"
+          kubectl cluster-info
+          kubectl auth can-i create namespaces | grep -Fx yes
+          kubectl auth can-i patch namespaces | grep -Fx yes
+          kubectl auth can-i delete clusterroles.rbac.authorization.k8s.io | grep -Fx yes
+          kubectl auth can-i delete clusterrolebindings.rbac.authorization.k8s.io | grep -Fx yes
+          for resource in \
+            secrets configmaps serviceaccounts jobs.batch deployments.apps services \
+            ingresses.networking.k8s.io networkpolicies.networking.k8s.io \
+            poddisruptionbudgets.policy horizontalpodautoscalers.autoscaling
+          do
+            kubectl auth can-i create "$resource" --namespace rootlens-system | grep -Fx yes
+            kubectl auth can-i patch "$resource" --namespace rootlens-system | grep -Fx yes
+          done
+          kubectl auth can-i delete jobs.batch --namespace rootlens-system | grep -Fx yes
+          kubectl auth can-i create roles.rbac.authorization.k8s.io \
+            --namespace "$ROOTLENS_MONITORED_NAMESPACE" | grep -Fx yes
+          kubectl auth can-i patch roles.rbac.authorization.k8s.io \
+            --namespace "$ROOTLENS_MONITORED_NAMESPACE" | grep -Fx yes
+          kubectl auth can-i create rolebindings.rbac.authorization.k8s.io \
+            --namespace "$ROOTLENS_MONITORED_NAMESPACE" | grep -Fx yes
+          kubectl auth can-i patch rolebindings.rbac.authorization.k8s.io \
+            --namespace "$ROOTLENS_MONITORED_NAMESPACE" | grep -Fx yes
+          kubectl get namespace "$ROOTLENS_INGRESS_NAMESPACE"
+          kubectl get namespace "$ROOTLENS_MONITORED_NAMESPACE"
+
+      - name: Render and client-validate immutable manifests
+        run: |
+          .venv/bin/python scripts/render_production.py \
+            --output-directory "$RUNNER_TEMP/rootlens-rendered" \
+            --hostname "$ROOTLENS_HOSTNAME" \
+            --image "$ROOTLENS_IMAGE" \
+            --ingress-class "$ROOTLENS_INGRESS_CLASS" \
+            --monitored-namespace "$ROOTLENS_MONITORED_NAMESPACE" \
+            --otlp-endpoint "$ROOTLENS_OTLP_ENDPOINT" \
+            --prometheus-url "$ROOTLENS_PROMETHEUS_URL" \
+            --tempo-url "$ROOTLENS_TEMPO_URL" \
+            --loki-url "$ROOTLENS_LOKI_URL"
+          for manifest in "$RUNNER_TEMP"/rootlens-rendered/*.yaml; do
+            kubectl apply --dry-run=client --filename "$manifest" >/dev/null
+          done
+
+      - name: Apply prerequisites and protected runtime secrets
+        run: |
+          kubectl apply --server-side --field-manager=rootlens-production --force-conflicts \
+            --filename "$RUNNER_TEMP/rootlens-rendered/01-prerequisites.yaml"
+          kubectl delete clusterrolebinding rootlens-production-reader --ignore-not-found
+          kubectl delete clusterrole rootlens-production-reader --ignore-not-found
+          kubectl label namespace "$ROOTLENS_INGRESS_NAMESPACE" \
+            rootlens.io/api-access=true --overwrite
+          kubectl --namespace rootlens-system create secret generic rootlens-auth \
+            --from-file=credentials.json="$RUNNER_TEMP/rootlens-auth.json" \
+            --dry-run=client --output yaml | kubectl apply --server-side \
+            --field-manager=rootlens-production --force-conflicts --filename -
+          kubectl --namespace rootlens-system create secret generic rootlens-runtime \
+            --from-file=database-url="$RUNNER_TEMP/rootlens-database-url" \
+            --from-file=openai-api-key="$RUNNER_TEMP/rootlens-openai-api-key" \
+            --dry-run=client --output yaml | kubectl apply --server-side \
+            --field-manager=rootlens-production --force-conflicts --filename -
+          kubectl --namespace rootlens-system create secret tls rootlens-tls \
+            --cert="$RUNNER_TEMP/rootlens-tls.crt" \
+            --key="$RUNNER_TEMP/rootlens-tls.key" \
+            --dry-run=client --output yaml | kubectl apply --server-side \
+            --field-manager=rootlens-production --force-conflicts --filename -
+
+      - name: Complete database migration before rollout
+        run: |
+          kubectl --namespace rootlens-system delete job rootlens-migrate \
+            --ignore-not-found --wait=true
+          kubectl apply --server-side --field-manager=rootlens-production --force-conflicts \
+            --filename "$RUNNER_TEMP/rootlens-rendered/02-migration.yaml"
+          if ! kubectl --namespace rootlens-system wait --for=condition=complete \
+            job/rootlens-migrate --timeout=10m; then
+            kubectl --namespace rootlens-system logs job/rootlens-migrate --all-containers=true
+            exit 1
+          fi
+
+      - name: Roll out application and TLS ingress
+        run: |
+          kubectl apply --server-side --field-manager=rootlens-production --force-conflicts \
+            --filename "$RUNNER_TEMP/rootlens-rendered/03-application.yaml"
+          kubectl apply --server-side --field-manager=rootlens-production --force-conflicts \
+            --filename "$RUNNER_TEMP/rootlens-rendered/04-ingress.yaml"
+          kubectl --namespace rootlens-system rollout restart deployment/rootlens-api
+          kubectl --namespace rootlens-system rollout status deployment/rootlens-api --timeout=10m
+          deployed_image=$(kubectl --namespace rootlens-system get deployment/rootlens-api \
+            --output jsonpath='{.spec.template.spec.containers[0].image}')
+          test "$deployed_image" = "$ROOTLENS_IMAGE"
+          ready=$(kubectl --namespace rootlens-system get deployment/rootlens-api \
+            --output jsonpath='{.status.readyReplicas}')
+          test "${ready:-0}" -ge 2
+
+      - name: Verify public DNS, trusted TLS, readiness, and authentication
+        run: |
+          endpoint="https://${ROOTLENS_HOSTNAME}"
+          available=0
+          for attempt in $(seq 1 60); do
+            echo "Public readiness attempt ${attempt}/60"
+            if curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+              --max-time 10 "$endpoint/health/ready" > "$RUNNER_TEMP/readiness.json"; then
+              available=1
+              break
+            fi
+            sleep 10
+          done
+          test "$available" -eq 1
+          .venv/bin/python -c \
+            'import json,os; assert json.load(open(os.environ["RUNNER_TEMP"] + "/readiness.json"))["status"] == "ready"'
+          anonymous_status=$(curl --proto '=https' --tlsv1.2 --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' "$endpoint/api/v1/incidents")
+          test "$anonymous_status" = 401
+          smoke_token=$(tr -d '\r\n' < "$RUNNER_TEMP/rootlens-smoke-token")
+          authenticated_status=$(curl --proto '=https' --tlsv1.2 --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${smoke_token}" "$endpoint/api/v1/incidents")
+          unset smoke_token
+          test "$authenticated_status" = 200
+          headers=$(curl --proto '=https' --tlsv1.2 --silent --show-error \
+            --dump-header - --output /dev/null "$endpoint/health/live")
+          grep -Eiq '^strict-transport-security:.*max-age=' <<< "$headers"
+
+      - name: Record non-secret deployment evidence
+        run: |
+          {
+            echo '## RootLens production deployment'
+            echo
+            echo "- Host: https://${ROOTLENS_HOSTNAME}"
+            echo "- Image: ${ROOTLENS_IMAGE}"
+            echo "- Context: ${ROOTLENS_KUBE_CONTEXT}"
+            echo '- Migration: complete'
+            echo '- Replicas: at least 2 ready'
+            echo '- Public TLS/authentication smoke: passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve safe diagnostics on failure
+        if: failure()
+        run: |
+          kubectl --namespace rootlens-system get deployment,pods,jobs,services,ingress \
+            --output wide || true
+          kubectl --namespace rootlens-system describe deployment/rootlens-api || true
+          kubectl --namespace rootlens-system logs deployment/rootlens-api \
+            --all-pods=true --all-containers=true --tail=300 || true
+
+      - name: Remove runner secret material
+        if: always()
+        run: |
+          rm -f \
+            "${KUBECONFIG:-$RUNNER_TEMP/rootlens-production-kubeconfig}" \
+            "$RUNNER_TEMP/rootlens-auth.json" \
+            "$RUNNER_TEMP/rootlens-database-url" \
+            "$RUNNER_TEMP/rootlens-openai-api-key" \
+            "$RUNNER_TEMP/rootlens-smoke-token" \
+            "$RUNNER_TEMP/rootlens-tls.crt" \
+            "$RUNNER_TEMP/rootlens-tls.key"

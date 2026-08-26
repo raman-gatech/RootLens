@@ -102,4 +102,5 @@ jobs:
       - name: Verify runtime contents and identity
         run: |
           test "$(docker image inspect rootlens:${{ github.sha }} --format '{{.Config.User}}')" = rootlens
-          docker run --rm rootlens:${{ github.sha }} python -c "import rootlens; assert rootlens.__version__ == '1.0.0'"
+          docker run --rm rootlens:${{ github.sha }} python -c \
+            "import importlib.metadata,rootlens; assert rootlens.__version__ == importlib.metadata.version('rootlens')"

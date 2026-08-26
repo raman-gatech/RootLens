@@ -5,6 +5,56 @@ and chaos testing. Production uses the templates in `deploy/production`, an
 external PostgreSQL/pgvector service, private telemetry backends, a TLS ingress,
 and secrets supplied by the deployment platform.
 
+## Protected deployment workflow
+
+`Production Deployment` is the supported promotion path. It targets the GitHub
+environment named `production`, refuses example/localhost inputs, requires the
+immutable RootLens GHCR digest, and renders manifests into four ordered phases:
+prerequisites, migration, application, and ingress. The migration Job must
+complete before the two-replica application rollout starts. The workflow then
+proves the deployed digest, public DNS, publicly trusted TLS, readiness, HSTS,
+anonymous rejection, and authenticated read access.
+
+Configure these non-secret `production` environment variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `ROOTLENS_HOSTNAME` | Public DNS name already delegated to the ingress load balancer |
+| `ROOTLENS_INGRESS_CLASS` | NGINX-compatible Kubernetes ingress class |
+| `ROOTLENS_INGRESS_NAMESPACE` | Namespace containing the ingress controller |
+| `ROOTLENS_KUBE_CONTEXT` | Context name inside the supplied kubeconfig |
+| `ROOTLENS_MONITORED_NAMESPACE` | Workload namespace RootLens may observe |
+| `ROOTLENS_OTLP_ENDPOINT` | Private OTLP HTTP(S) endpoint |
+| `ROOTLENS_PROMETHEUS_URL` | Private Prometheus HTTP(S) endpoint |
+| `ROOTLENS_TEMPO_URL` | Private Tempo HTTP(S) endpoint |
+| `ROOTLENS_LOKI_URL` | Private Loki HTTP(S) endpoint |
+
+Configure these `production` environment secrets:
+
+| Secret | Requirement |
+| --- | --- |
+| `PRODUCTION_KUBECONFIG` | Least-privilege deployment kubeconfig |
+| `ROOTLENS_DATABASE_URL` | `postgresql+asyncpg` URL with certificate/hostname verification via `ssl=verify-full` |
+| `ROOTLENS_AUTH_CREDENTIALS` | Complete digest-only credentials JSON document |
+| `ROOTLENS_SMOKE_TOKEN` | Raw token matching a credential with `read` permission |
+| `OPENAI_API_KEY` | OpenAI key for production investigations and the real-model study |
+| `ROOTLENS_TLS_CERTIFICATE` | Public certificate/full chain valid for `ROOTLENS_HOSTNAME` |
+| `ROOTLENS_TLS_PRIVATE_KEY` | Matching private key |
+
+Protect the environment with required reviewers and restrict its deployment
+branches to `main`. Secrets are materialized as mode-0600 runner files, applied
+to Kubernetes without appearing on command lines, and removed unconditionally.
+The workflow uses the dedicated `rootlens-production` server-side field manager
+and claims conflicts only on the RootLens resources declared in these manifests.
+The RootLens service account receives a namespaced Role in only
+`ROOTLENS_MONITORED_NAMESPACE`; it has no cluster-wide workload read access.
+Promotion also removes the legacy `rootlens-production-reader` ClusterRole and
+ClusterRoleBinding if they exist.
+Dispatch with confirmation `deploy-production`; retain the default v1.0.0 digest
+unless promoting a separately signed release. DNS and the ingress controller/load
+balancer must exist before dispatch. The included ingress enforces HTTPS,
+request-size limits, and NGINX connection/request rate limits.
+
 ## Release checklist
 
 1. Build the image from a reviewed commit and sign it in your registry. Replace
@@ -14,7 +64,8 @@ and secrets supplied by the deployment platform.
    A database administrator must install the `vector` extension in the target
    database once; schema migrations then run as the least-privilege application
    role.
-3. Replace every example hostname and backend URL. Label only the ingress
+3. Configure the protected workflow variables. The renderer replaces every
+   example hostname/backend and the workflow labels only the selected ingress
    namespace with `rootlens.io/api-access=true`.
 4. Create `rootlens-runtime` with `database-url` and, only when selected,
    `openai-api-key`. Use a TLS-enabled PostgreSQL URL with a dedicated,

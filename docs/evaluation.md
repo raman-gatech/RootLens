@@ -51,15 +51,16 @@ the protected journal and is attached after predictions for metric reduction.
 Only aggregate `EvaluationReport` objects may be published; neither the report
 nor the API exposes case predictions or hidden answers.
 
-To run it, create the protected repository secret `OPENAI_API_KEY`, then dispatch
-`OpenAI Live Evaluation` on `main`. The key is copied to a mode-0600 runner file,
-never passed as a command-line argument, removed in the unconditional cleanup,
-and never committed. The workflow refuses to start infrastructure if the secret
-is absent. Its final gate requires 100 trials for all five methods, nonzero real
-model calls/tokens/costs for B–E, 100 recovered ground-truth lifecycles, and no
-serialized `ground_truth` field. Model access, account rate limits, and spend
-limits must be confirmed before dispatch. Current model capabilities and pricing
-are documented at <https://developers.openai.com/api/docs/models/gpt-5.4-mini>.
+To run it, create `OPENAI_API_KEY` in the protected GitHub environment named
+`production`, then dispatch `OpenAI Live Evaluation` on `main`. The key is copied
+to a mode-0600 runner file, never passed as a command-line argument, removed in
+the unconditional cleanup, and never committed. The workflow refuses to start
+infrastructure if the secret is absent. Its final gate requires 100 trials for
+all five methods, nonzero real model calls/tokens/costs for B–E, 100 recovered
+ground-truth lifecycles, and no serialized `ground_truth` field. Model access,
+account rate limits, and spend limits must be confirmed before dispatch. Current
+model capabilities and pricing are documented at
+<https://developers.openai.com/api/docs/models/gpt-5.4-mini>.
 
 ## Reproducibility
 

@@ -14,6 +14,7 @@ jobs:
   hundred-live-openai-incidents:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    environment: production
     steps:
       - uses: actions/checkout@v4
         with:

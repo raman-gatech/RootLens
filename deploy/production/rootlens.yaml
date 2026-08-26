@@ -13,9 +13,10 @@ metadata:
 automountServiceAccountToken: false
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: rootlens-production-reader
+  namespace: default
 rules:
   - apiGroups: [""]
     resources: ["pods", "events"]
@@ -25,12 +26,13 @@ rules:
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: rootlens-production-reader
+  namespace: default
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: rootlens-production-reader
 subjects:
   - kind: ServiceAccount
@@ -96,7 +98,7 @@ spec:
       containers:
         - name: api
           # Replace with an immutable registry digest during release promotion.
-          image: ghcr.io/raman-gatech/rootlens:1.0.0
+          image: ghcr.io/raman-gatech/rootlens@sha256:REPLACE_WITH_64_HEX_DIGEST
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

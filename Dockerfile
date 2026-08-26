@@ -32,7 +32,7 @@ WORKDIR /app
 
 COPY --from=builder /wheels /wheels
 
-RUN pip install --no-cache-dir --no-index --find-links=/wheels rootlens==1.0.0 \
+RUN pip install --no-cache-dir --no-index --find-links=/wheels rootlens==1.0.1 \
     && rm -rf /wheels
 
 COPY --chown=rootlens:rootlens migrations ./migrations

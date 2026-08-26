@@ -20,7 +20,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrate
-          image: ghcr.io/raman-gatech/rootlens:1.0.0
+          image: ghcr.io/raman-gatech/rootlens@sha256:REPLACE_WITH_64_HEX_DIGEST
           command: ["alembic", "upgrade", "head"]
           envFrom:
             - configMapRef:

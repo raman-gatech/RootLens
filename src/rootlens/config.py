@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "staging", "production"] = "development"
     log_level: str = "INFO"
     service_name: str = "rootlens-api"
-    service_version: str = "1.0.0"
+    service_version: str = "1.0.1"
     schema_revision: str = "20260825_0008"
     docs_enabled: bool = True
     auth_enabled: bool = False
