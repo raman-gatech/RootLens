@@ -79,9 +79,12 @@ def scenario(fault_type: FaultType, *, duration_seconds: int = 30) -> Experiment
     if fault_type in {FaultType.DNS_ERROR, FaultType.DNS_RANDOM}:
         return ExperimentSpec(
             fault_type=fault_type,
-            target_service="checkout",
+            # DNSChaos rewrites resolv.conf through POSIX shell utilities in the
+            # target mount namespace. The checkout image is distroless, while
+            # frontend-proxy is a shell-equipped Envoy image that resolves it.
+            target_service="frontend-proxy",
             duration_seconds=duration_seconds,
-            dns_patterns=("payment.*",),
+            dns_patterns=("checkout.*",),
         )
     if fault_type in {FaultType.IO_LATENCY, FaultType.IO_FAULT}:
         return ExperimentSpec(

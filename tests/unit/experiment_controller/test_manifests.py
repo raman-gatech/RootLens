@@ -82,3 +82,10 @@ def test_io_faults_target_the_dedicated_disposable_volume() -> None:
         chaos_spec = render_manifest(scenario(fault_type))["spec"]
         assert chaos_spec["volumePath"] == "/var/rootlens-chaos"
         assert chaos_spec["path"] == "/var/rootlens-chaos/*"
+
+
+def test_dns_faults_target_a_shell_equipped_workload() -> None:
+    for fault_type in (FaultType.DNS_ERROR, FaultType.DNS_RANDOM):
+        spec = scenario(fault_type)
+        assert spec.target_service == "frontend-proxy"
+        assert spec.dns_patterns == ("checkout.*",)
