@@ -50,7 +50,7 @@ The RootLens service account receives a namespaced Role in only
 `ROOTLENS_MONITORED_NAMESPACE`; it has no cluster-wide workload read access.
 Promotion also removes the legacy `rootlens-production-reader` ClusterRole and
 ClusterRoleBinding if they exist.
-Dispatch with confirmation `deploy-production`; retain the default v1.0.0 digest
+Dispatch with confirmation `deploy-production`; retain the default v1.0.1 digest
 unless promoting a separately signed release. DNS and the ingress controller/load
 balancer must exist before dispatch. The included ingress enforces HTTPS,
 request-size limits, and NGINX connection/request rate limits.
