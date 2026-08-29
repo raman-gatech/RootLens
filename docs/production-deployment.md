@@ -88,7 +88,9 @@ request-size limits, and NGINX connection/request rate limits.
    ingress. Forward proxy headers only from the trusted sidecar or ingress.
 8. Export application logs and OTLP signals, alert on readiness failures, elevated
    5xx rates, investigation failures, exhausted budgets, and remediation-policy
-   rejections.
+   rejections. RootLens enables transport security automatically for an
+   `https://` OTLP endpoint; use `http://` only for an explicitly private,
+   plaintext collector path.
 
 ## Authentication file
 
