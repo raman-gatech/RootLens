@@ -2,6 +2,17 @@
 
 All notable changes are documented here. RootLens follows semantic versioning.
 
+## 1.0.2 — 2026-08-29
+
+- Add reusable protected-input validation for production kubeconfig, credentials,
+  database transport, smoke identity, file permissions, and OpenAI configuration.
+- Honor TLS for HTTPS OTLP export instead of forcing plaintext transport.
+- Enable CodeQL, Dependabot vulnerability alerts, automated security fixes, and
+  secret scanning; pin every third-party workflow action by immutable commit.
+- Gate runtime images on fixable high/critical vulnerabilities and move to a
+  scanner-clean, digest-pinned Python 3.12.14 Bookworm base image.
+- Replace URL-substring placeholder detection with structured YAML validation.
+
 ## 1.0.1 — 2026-08-26
 
 - Add a protected, phased production deployment workflow with immutable-signature
