@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts.render_production import ProductionRenderError, render
+from scripts.render_production import ProductionRenderError, _contains_placeholder, render
 
 _DIGEST = "sha256:" + "a" * 64
 _IMAGE = f"ghcr.io/raman-gatech/rootlens@{_DIGEST}"
@@ -79,3 +79,9 @@ def test_render_rejects_unsafe_inputs(
 
     with pytest.raises(ProductionRenderError, match=message):
         render(**arguments)
+
+
+def test_placeholder_detection_uses_complete_yaml_values() -> None:
+    assert _contains_placeholder({"host": "rootlens.example.com"})
+    assert _contains_placeholder({"image": "rootlens@sha256:REPLACE_WITH_DIGEST"})
+    assert not _contains_placeholder({"note": "rootlens.example.com.evil"})

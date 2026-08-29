@@ -89,8 +89,8 @@ def render(
         _write_documents(output_directory / "04-ingress.yaml", ingress_documents),
     )
     for output in outputs:
-        rendered = output.read_text(encoding="utf-8")
-        if "rootlens.example.com" in rendered or "REPLACE_WITH" in rendered:
+        rendered_documents = tuple(yaml.safe_load_all(output.read_text(encoding="utf-8")))
+        if _contains_placeholder(rendered_documents):
             raise ProductionRenderError(f"placeholder remained in {output.name}")
     return outputs
 
@@ -183,6 +183,18 @@ def _write_documents(path: Path, documents: tuple[dict[str, Any], ...]) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _contains_placeholder(value: Any) -> bool:
+    if isinstance(value, str):
+        return value == "rootlens.example.com" or "REPLACE_WITH" in value
+    if isinstance(value, dict):
+        return any(
+            _contains_placeholder(key) or _contains_placeholder(item) for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_placeholder(item) for item in value)
+    return False
 
 
 def main() -> int:
