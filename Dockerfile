@@ -1,4 +1,4 @@
-FROM python:3.12.14-slim@sha256:09f7da3bc104798d0afb40bc08d23ab2da20a76130cec1f2ef170848f5d85217 AS builder
+FROM python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
@@ -9,7 +9,7 @@ COPY src ./src
 
 RUN pip wheel --no-cache-dir --wheel-dir /wheels --constraint requirements.lock .
 
-FROM python:3.12.14-slim@sha256:09f7da3bc104798d0afb40bc08d23ab2da20a76130cec1f2ef170848f5d85217 AS runtime
+FROM python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579 AS runtime
 
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
