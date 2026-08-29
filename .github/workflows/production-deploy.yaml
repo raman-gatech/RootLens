@@ -10,7 +10,7 @@ on:
       image_digest:
         description: Immutable signed RootLens image digest
         required: true
-        default: sha256:339515c9a5a1d88036ec68601f25a2077a9aa2b5c404a37c0bd9ee8ffc325923
+        default: sha256:4194e78e4d21882b448d0483eea4771d92108e27221e27b7fd86672a888e5942
         type: string
 
 permissions:
