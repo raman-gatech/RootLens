@@ -41,6 +41,13 @@ Configure these `production` environment secrets:
 | `ROOTLENS_TLS_CERTIFICATE` | Public certificate/full chain valid for `ROOTLENS_HOSTNAME` |
 | `ROOTLENS_TLS_PRIVATE_KEY` | Matching private key |
 
+Before promotion, the workflow writes protected values to private runner files
+and runs `scripts/validate_production_inputs.py`. The validator rejects
+group/world-readable files, a missing kubeconfig context, malformed or duplicate
+credential entries, a smoke token without matching `read` access, loopback or
+non-verifying PostgreSQL connections, and malformed OpenAI credentials. It emits
+only a pass/fail result and never prints protected values.
+
 Protect the environment with required reviewers and restrict its deployment
 branches to `main`. Secrets are materialized as mode-0600 runner files, applied
 to Kubernetes without appearing on command lines, and removed unconditionally.

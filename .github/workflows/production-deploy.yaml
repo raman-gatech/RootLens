@@ -101,40 +101,15 @@ jobs:
       - name: Bootstrap deployment tooling
         run: make bootstrap
 
-      - name: Validate secrets, TLS identity, and database transport
+      - name: Validate protected inputs, TLS identity, and database transport
         run: |
-          .venv/bin/python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import re
-          from pathlib import Path
-          from urllib.parse import parse_qs, urlsplit
-
-          runtime = Path(os.environ["RUNNER_TEMP"])
-          credentials = json.loads((runtime / "rootlens-auth.json").read_text())
-          entries = credentials.get("credentials")
-          assert isinstance(entries, list) and entries, "at least one credential is required"
-          allowed = {"read", "investigate", "ingest", "publish", "remediate"}
-          for entry in entries:
-              assert isinstance(entry.get("principal"), str) and entry["principal"]
-              assert re.fullmatch(r"[a-f0-9]{64}", entry.get("token_sha256", ""))
-              assert set(entry.get("permissions", [])) <= allowed
-          smoke = (runtime / "rootlens-smoke-token").read_text().strip()
-          smoke_digest = hashlib.sha256(smoke.encode()).hexdigest()
-          assert any(
-              entry["token_sha256"] == smoke_digest and "read" in entry["permissions"]
-              for entry in entries
-          ), "smoke token must match a credential with read permission"
-
-          database_url = (runtime / "rootlens-database-url").read_text().strip()
-          parsed = urlsplit(database_url)
-          assert parsed.scheme == "postgresql+asyncpg"
-          assert parsed.hostname not in {None, "localhost", "127.0.0.1", "::1"}
-          assert parsed.username and parsed.password and parsed.path not in {"", "/"}
-          ssl_mode = parse_qs(parsed.query).get("ssl", [])
-          assert ssl_mode == ["verify-full"]
-          PY
+          .venv/bin/python scripts/validate_production_inputs.py \
+            --kubeconfig "$KUBECONFIG" \
+            --kube-context "$ROOTLENS_KUBE_CONTEXT" \
+            --credentials "$RUNNER_TEMP/rootlens-auth.json" \
+            --smoke-token "$RUNNER_TEMP/rootlens-smoke-token" \
+            --database-url "$RUNNER_TEMP/rootlens-database-url" \
+            --openai-api-key "$RUNNER_TEMP/rootlens-openai-api-key"
           openssl x509 -in "$RUNNER_TEMP/rootlens-tls.crt" -noout \
             -checkhost "$ROOTLENS_HOSTNAME"
           openssl x509 -in "$RUNNER_TEMP/rootlens-tls.crt" -noout -checkend 2592000
