@@ -41,9 +41,19 @@ class AnomalyEngine:
             except ValueError as error:
                 warnings.append(f"{item.service}/{item.signal.value}: {error}")
 
+        # Isolation Forest is a second-stage scorer. Running one model for every
+        # healthy service made the normal (no-anomaly) path scale with the full
+        # topology even though those scores could never affect the output. Only
+        # services admitted by the statistical screen can produce a ranked
+        # anomaly, so restrict multivariate scoring to that candidate set.
+        candidate_results = tuple(
+            result for result in statistical_results if result.anomaly_start_time is not None
+        )
+        candidate_services = {result.series.service for result in candidate_results}
         by_service: dict[str, dict[SignalName, MetricSignalSeries]] = defaultdict(dict)
         for result in statistical_results:
-            by_service[result.series.service][result.series.signal] = result.series
+            if result.series.service in candidate_services:
+                by_service[result.series.service][result.series.signal] = result.series
         forest_scores = {
             service: self._isolation_forest.score_service(service_series)
             for service, service_series in by_service.items()
@@ -98,11 +108,11 @@ class AnomalyEngine:
         evidence_references = tuple(
             sorted({reference for item in series for reference in item.evidence_references})
         )
-        used_forest = any(anomaly.isolation_forest_score is not None for anomaly in ranked)
+        used_forest = any(scores for scores in forest_scores.values())
         detectors: tuple[DetectorName, ...] = (DetectorName.STATISTICAL,)
         if used_forest:
             detectors += (DetectorName.ISOLATION_FOREST,)
-        elif statistical_results:
+        elif candidate_results:
             warnings.append(
                 "Isolation Forest skipped because aligned baseline data was insufficient"
             )

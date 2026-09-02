@@ -1,6 +1,7 @@
 """Combined statistical and Isolation Forest ranking tests."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import Mock
 
 from rootlens.anomaly import AnomalyEngine, DetectorName, SignalName
 from rootlens.anomaly.isolation_forest import IsolationForestDetector
@@ -118,3 +119,31 @@ def test_isolation_forest_discards_non_finite_aligned_rows() -> None:
 
     assert len(scores) == 2
     assert all(score >= 0 for score in scores.values())
+
+
+def test_healthy_services_do_not_train_second_stage_models() -> None:
+    start = datetime(2026, 8, 25, 12, tzinfo=UTC)
+    stable = metric_series(
+        service="payment",
+        signal=SignalName.REQUEST_RATE,
+        start=start,
+        baseline=[20, 21, 19, 20, 20, 21, 19, 20, 20, 21, 19, 20],
+        incident=[20, 20, 19, 20],
+    )
+    baseline_window = QueryWindow(start=start, end=start + timedelta(minutes=6))
+    incident_window = QueryWindow(
+        start=baseline_window.end,
+        end=baseline_window.end + timedelta(minutes=2),
+    )
+    forest = Mock(spec=IsolationForestDetector)
+
+    snapshot = AnomalyEngine(isolation_forest=forest).analyze(
+        (stable,),
+        baseline_window=baseline_window,
+        incident_window=incident_window,
+    )
+
+    forest.score_service.assert_not_called()
+    assert snapshot.detectors == (DetectorName.STATISTICAL,)
+    assert snapshot.anomalies == ()
+    assert snapshot.warnings == ()

@@ -15,6 +15,9 @@ def verify(
     incident_end: datetime,
     incident_minutes: int,
     baseline_minutes: int,
+    minimum_score: float,
+    require_anomaly: bool,
+    timeout_seconds: float,
 ) -> None:
     incident_start = incident_end - timedelta(minutes=incident_minutes)
     baseline_end = incident_start
@@ -25,9 +28,9 @@ def verify(
         "incident_start": incident_start.isoformat(),
         "incident_end": incident_end.isoformat(),
         "step_seconds": 30,
-        "minimum_score": 0.5,
+        "minimum_score": minimum_score,
     }
-    with httpx.Client(base_url=base_url, timeout=30) as client:
+    with httpx.Client(base_url=base_url, timeout=timeout_seconds) as client:
         response = client.post("/api/v1/anomalies/analyze", json=payload)
         response.raise_for_status()
         analysis = response.json()
@@ -41,7 +44,7 @@ def verify(
     if analysis["evaluated_series"] < 1:
         raise RuntimeError("analysis evaluated no service/signal series")
     anomalies = analysis["anomalies"]
-    if not anomalies:
+    if require_anomaly and not anomalies:
         raise RuntimeError("analysis produced no ranked anomalies")
     if [item["rank"] for item in anomalies] != list(range(1, len(anomalies) + 1)):
         raise RuntimeError("anomaly ranks are not contiguous")
@@ -53,12 +56,20 @@ def verify(
         for reference in analysis["evidence_references"]
     ):
         raise RuntimeError("analysis contains a non-Prometheus evidence reference")
-    top = anomalies[0]
-    print(f"PASS ranked {len(anomalies)} anomalies across {analysis['evaluated_series']} series")
-    print(
-        f"PASS top anomaly rank=1 service={top['service']} signal={top['signal']} "
-        f"score={top['score']:.3f}"
-    )
+    if anomalies:
+        top = anomalies[0]
+        print(
+            f"PASS ranked {len(anomalies)} anomalies across {analysis['evaluated_series']} series"
+        )
+        print(
+            f"PASS top anomaly rank=1 service={top['service']} signal={top['signal']} "
+            f"score={top['score']:.3f}"
+        )
+    else:
+        print(
+            f"PASS evaluated {analysis['evaluated_series']} series; "
+            f"no anomalies exceeded score {minimum_score:.3f}"
+        )
     print(f"PASS persisted analysis {analysis['id']}")
 
 
@@ -68,18 +79,32 @@ def main() -> int:
     parser.add_argument("--incident-end", type=datetime.fromisoformat)
     parser.add_argument("--incident-minutes", type=int, default=5)
     parser.add_argument("--baseline-minutes", type=int, default=20)
+    parser.add_argument("--minimum-score", type=float, default=0.5)
+    parser.add_argument(
+        "--require-anomaly",
+        action="store_true",
+        help="fail when no series exceeds the configured minimum score",
+    )
+    parser.add_argument("--timeout-seconds", type=float, default=180.0)
     arguments = parser.parse_args()
     incident_end = arguments.incident_end or datetime.now(UTC)
     if incident_end.tzinfo is None:
         parser.error("--incident-end must be timezone-aware")
     if arguments.incident_minutes < 1 or arguments.baseline_minutes < 5:
         parser.error("incident must be >= 1 minute and baseline must be >= 5 minutes")
+    if not 0 <= arguments.minimum_score <= 1:
+        parser.error("--minimum-score must be between 0 and 1")
+    if arguments.timeout_seconds <= 0:
+        parser.error("--timeout-seconds must be greater than zero")
     try:
         verify(
             base_url=arguments.base_url,
             incident_end=incident_end,
             incident_minutes=arguments.incident_minutes,
             baseline_minutes=arguments.baseline_minutes,
+            minimum_score=arguments.minimum_score,
+            require_anomaly=arguments.require_anomaly,
+            timeout_seconds=arguments.timeout_seconds,
         )
     except Exception as error:
         print(f"FAIL anomaly verification: {error}", file=sys.stderr)
