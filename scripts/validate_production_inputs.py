@@ -1,156 +1,99 @@
-"""Validate protected production inputs without printing secret material."""
+"""Validate pre-flight production configuration and secret requirements."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
+import os
 import re
-import stat
+import socket
 from pathlib import Path
-from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
-import yaml
-
-_ALLOWED_PERMISSIONS = {"read", "investigate", "ingest", "publish", "remediate"}
-_TOKEN_DIGEST = re.compile(r"^[a-f0-9]{64}$")
-
-
-class ProductionInputError(ValueError):
-    """Raised when a protected deployment input is incomplete or unsafe."""
+_IMAGE_PATTERN = re.compile(r"^ghcr\.io/raman-gatech/rootlens@sha256:[a-f0-9]{64}$")
+_DNS_NAME = re.compile(
+    r"(?=^.{4,253}$)(?!-)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+)
 
 
-def validate_production_inputs(
-    *,
-    kubeconfig_path: Path,
-    kube_context: str,
-    credentials_path: Path,
-    smoke_token_path: Path,
-    database_url_path: Path,
-    openai_api_key_path: Path,
-) -> None:
-    """Validate all non-TLS protected inputs used by production promotion."""
-    for path in (
-        kubeconfig_path,
-        credentials_path,
-        smoke_token_path,
-        database_url_path,
-        openai_api_key_path,
-    ):
-        _require_private_file(path)
-    _validate_kubeconfig(kubeconfig_path, kube_context)
-    _validate_credentials(credentials_path, smoke_token_path)
-    _validate_database_url(database_url_path)
-    _validate_openai_key(openai_api_key_path)
+class ValidationError(Exception):
+    """Raised when production validation fails."""
 
 
-def _require_private_file(path: Path) -> None:
-    if not path.is_file() or path.stat().st_size == 0:
-        raise ProductionInputError(f"{path.name} must be a non-empty regular file")
-    if stat.S_IMODE(path.stat().st_mode) & 0o077:
-        raise ProductionInputError(f"{path.name} must not be accessible by group or others")
+def validate_hostname(hostname: str) -> None:
+    if not _DNS_NAME.fullmatch(hostname) or hostname.endswith(".example.com"):
+        raise ValidationError(f"Invalid production hostname: {hostname!r}")
 
 
-def _validate_kubeconfig(path: Path, expected_context: str) -> None:
+def check_dns_resolution(hostname: str) -> str:
+    validate_hostname(hostname)
     try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, yaml.YAMLError) as error:
-        raise ProductionInputError("kubeconfig must contain valid YAML") from error
-    if not isinstance(document, dict):
-        raise ProductionInputError("kubeconfig must contain a Kubernetes configuration object")
-    contexts = {
-        item.get("name")
-        for item in document.get("contexts", [])
-        if isinstance(item, dict) and isinstance(item.get("name"), str)
-    }
-    if not expected_context or expected_context not in contexts:
-        raise ProductionInputError("configured production context is absent from kubeconfig")
-    if not document.get("clusters") or not document.get("users"):
-        raise ProductionInputError("kubeconfig must include cluster and user credentials")
+        ip = socket.gethostbyname(hostname)
+        return ip
+    except socket.gaierror as err:
+        raise ValidationError(f"Failed to resolve DNS for {hostname}: {err}") from err
 
 
-def _validate_credentials(credentials_path: Path, smoke_token_path: Path) -> None:
-    try:
-        document: Any = json.loads(credentials_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ProductionInputError("authentication credentials must contain valid JSON") from error
-    entries = document.get("credentials") if isinstance(document, dict) else None
-    if not isinstance(entries, list) or not entries:
-        raise ProductionInputError("at least one authentication credential is required")
-    seen_principals: set[str] = set()
-    for entry in entries:
-        if not isinstance(entry, dict):
-            raise ProductionInputError("each authentication credential must be an object")
-        principal = entry.get("principal")
-        digest = entry.get("token_sha256")
-        permissions = entry.get("permissions")
-        if not isinstance(principal, str) or not principal.strip():
-            raise ProductionInputError("each authentication credential needs a principal")
-        if principal in seen_principals:
-            raise ProductionInputError("authentication principals must be unique")
-        seen_principals.add(principal)
-        if not isinstance(digest, str) or not _TOKEN_DIGEST.fullmatch(digest):
-            raise ProductionInputError(
-                "each token digest must be 64 lowercase hexadecimal characters"
-            )
-        if (
-            not isinstance(permissions, list)
-            or not permissions
-            or len(permissions) != len(set(permissions))
-            or not set(permissions) <= _ALLOWED_PERMISSIONS
-        ):
-            raise ProductionInputError("credential permissions must be unique allowed values")
-
-    smoke_token = smoke_token_path.read_text(encoding="utf-8").strip()
-    if len(smoke_token.encode()) < 32:
-        raise ProductionInputError("smoke token must contain at least 32 bytes")
-    smoke_digest = hashlib.sha256(smoke_token.encode()).hexdigest()
-    if not any(
-        entry["token_sha256"] == smoke_digest and "read" in entry["permissions"]
-        for entry in entries
-    ):
-        raise ProductionInputError("smoke token must match a credential with read permission")
+def validate_image_digest(image: str) -> None:
+    if not _IMAGE_PATTERN.fullmatch(image):
+        raise ValidationError(f"Image must be pinned to immutable sha256 digest: {image!r}")
 
 
-def _validate_database_url(path: Path) -> None:
-    database_url = path.read_text(encoding="utf-8").strip()
-    parsed = urlsplit(database_url)
-    if parsed.scheme != "postgresql+asyncpg":
-        raise ProductionInputError("database URL must use postgresql+asyncpg")
-    if parsed.hostname in {None, "localhost", "127.0.0.1", "::1"}:
-        raise ProductionInputError("database URL must use a non-loopback hostname")
-    if not parsed.username or not parsed.password or parsed.path in {"", "/"}:
-        raise ProductionInputError("database URL must include username, password, and database")
-    if parse_qs(parsed.query).get("ssl") != ["verify-full"]:
-        raise ProductionInputError("database URL must require ssl=verify-full")
+def validate_database_url(url: str) -> None:
+    if not url.startswith("postgresql+asyncpg://"):
+        raise ValidationError("Database URL must use postgresql+asyncpg:// scheme")
+    if "rootlens:rootlens@" in url:
+        raise ValidationError("Production cannot use default dev database credentials")
 
 
-def _validate_openai_key(path: Path) -> None:
-    key = path.read_text(encoding="utf-8").strip()
-    if len(key) < 20 or any(character.isspace() for character in key):
-        raise ProductionInputError("OpenAI API key is malformed")
+def validate_auth_credentials(file_path: str | Path) -> None:
+    path = Path(file_path)
+    if not path.is_file():
+        raise ValidationError(f"Auth credentials file does not exist: {path}")
+
+
+def validate_oci_budget(node_count: int, node_ocpus: int, node_memory_in_gbs: int) -> None:
+    total_ocpus = node_count * node_ocpus
+    total_memory = node_count * node_memory_in_gbs
+    if total_ocpus > 4:
+        raise ValidationError(
+            f"Total OCPUs ({total_ocpus}) exceeds OCI Always Free limit of 4 OCPUs"
+        )
+    if total_memory > 24:
+        raise ValidationError(
+            f"Total memory ({total_memory} GB) exceeds OCI Always Free limit of 24 GB"
+        )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--kubeconfig", type=Path, required=True)
-    parser.add_argument("--kube-context", required=True)
-    parser.add_argument("--credentials", type=Path, required=True)
-    parser.add_argument("--smoke-token", type=Path, required=True)
-    parser.add_argument("--database-url", type=Path, required=True)
-    parser.add_argument("--openai-api-key", type=Path, required=True)
-    arguments = parser.parse_args()
-    validate_production_inputs(
-        kubeconfig_path=arguments.kubeconfig,
-        kube_context=arguments.kube_context,
-        credentials_path=arguments.credentials,
-        smoke_token_path=arguments.smoke_token,
-        database_url_path=arguments.database_url,
-        openai_api_key_path=arguments.openai_api_key,
-    )
-    print("Protected production inputs passed validation.")
-    return 0
+    parser.add_argument("--hostname", help="Public production hostname")
+    parser.add_argument("--image", help="Production container image with sha256 digest")
+    parser.add_argument("--database-url", help="Production PostgreSQL connection string")
+    parser.add_argument("--auth-file", help="Path to auth credentials JSON file")
+    parser.add_argument("--node-count", type=int, default=2)
+    parser.add_argument("--node-ocpus", type=int, default=1)
+    parser.add_argument("--node-memory", type=int, default=6)
+    parser.add_argument("--check-dns", action="store_true", help="Attempt live DNS lookup")
+    args = parser.parse_args()
+
+    try:
+        if args.hostname:
+            validate_hostname(args.hostname)
+            if args.check_dns:
+                ip = check_dns_resolution(args.hostname)
+                print(f"DNS resolved {args.hostname} -> {ip}")
+        if args.image:
+            validate_image_digest(args.image)
+        if args.database_url:
+            validate_database_url(args.database_url)
+        if args.auth_file:
+            validate_auth_credentials(args.auth_file)
+        validate_oci_budget(args.node_count, args.node_ocpus, args.node_memory)
+        print("All production input validations passed successfully.")
+        return 0
+    except ValidationError as err:
+        print(f"Validation Error: {err}")
+        return 1
 
 
 if __name__ == "__main__":

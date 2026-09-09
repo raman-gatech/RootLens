@@ -5,6 +5,8 @@ and chaos testing. Production uses the templates in `deploy/production`, an
 external PostgreSQL/pgvector service, private telemetry backends, a TLS ingress,
 and secrets supplied by the deployment platform.
 
+For automated provisioning and deployment on Oracle Cloud Infrastructure (OCI) Always Free OKE, see the [OCI Always Free Deployment Guide](oci-free-tier-deployment.md).
+
 ## Protected deployment workflow
 
 `Production Deployment` is the supported promotion path. It targets the GitHub
@@ -17,29 +19,29 @@ anonymous rejection, and authenticated read access.
 
 Configure these non-secret `production` environment variables:
 
-| Variable | Meaning |
-| --- | --- |
-| `ROOTLENS_HOSTNAME` | Public DNS name already delegated to the ingress load balancer |
-| `ROOTLENS_INGRESS_CLASS` | NGINX-compatible Kubernetes ingress class |
-| `ROOTLENS_INGRESS_NAMESPACE` | Namespace containing the ingress controller |
-| `ROOTLENS_KUBE_CONTEXT` | Context name inside the supplied kubeconfig |
-| `ROOTLENS_MONITORED_NAMESPACE` | Workload namespace RootLens may observe |
-| `ROOTLENS_OTLP_ENDPOINT` | Private OTLP HTTP(S) endpoint |
-| `ROOTLENS_PROMETHEUS_URL` | Private Prometheus HTTP(S) endpoint |
-| `ROOTLENS_TEMPO_URL` | Private Tempo HTTP(S) endpoint |
-| `ROOTLENS_LOKI_URL` | Private Loki HTTP(S) endpoint |
+| Variable                       | Meaning                                                        |
+| ------------------------------ | -------------------------------------------------------------- |
+| `ROOTLENS_HOSTNAME`            | Public DNS name already delegated to the ingress load balancer |
+| `ROOTLENS_INGRESS_CLASS`       | NGINX-compatible Kubernetes ingress class                      |
+| `ROOTLENS_INGRESS_NAMESPACE`   | Namespace containing the ingress controller                    |
+| `ROOTLENS_KUBE_CONTEXT`        | Context name inside the supplied kubeconfig                    |
+| `ROOTLENS_MONITORED_NAMESPACE` | Workload namespace RootLens may observe                        |
+| `ROOTLENS_OTLP_ENDPOINT`       | Private OTLP HTTP(S) endpoint                                  |
+| `ROOTLENS_PROMETHEUS_URL`      | Private Prometheus HTTP(S) endpoint                            |
+| `ROOTLENS_TEMPO_URL`           | Private Tempo HTTP(S) endpoint                                 |
+| `ROOTLENS_LOKI_URL`            | Private Loki HTTP(S) endpoint                                  |
 
 Configure these `production` environment secrets:
 
-| Secret | Requirement |
-| --- | --- |
-| `PRODUCTION_KUBECONFIG` | Least-privilege deployment kubeconfig |
-| `ROOTLENS_DATABASE_URL` | `postgresql+asyncpg` URL with certificate/hostname verification via `ssl=verify-full` |
-| `ROOTLENS_AUTH_CREDENTIALS` | Complete digest-only credentials JSON document |
-| `ROOTLENS_SMOKE_TOKEN` | Raw token matching a credential with `read` permission |
-| `OPENAI_API_KEY` | OpenAI key for production investigations and the real-model study |
-| `ROOTLENS_TLS_CERTIFICATE` | Public certificate/full chain valid for `ROOTLENS_HOSTNAME` |
-| `ROOTLENS_TLS_PRIVATE_KEY` | Matching private key |
+| Secret                      | Requirement                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| `PRODUCTION_KUBECONFIG`     | Least-privilege deployment kubeconfig                                                 |
+| `ROOTLENS_DATABASE_URL`     | `postgresql+asyncpg` URL with certificate/hostname verification via `ssl=verify-full` |
+| `ROOTLENS_AUTH_CREDENTIALS` | Complete digest-only credentials JSON document                                        |
+| `ROOTLENS_SMOKE_TOKEN`      | Raw token matching a credential with `read` permission                                |
+| `OPENAI_API_KEY`            | OpenAI key for production investigations and the real-model study                     |
+| `ROOTLENS_TLS_CERTIFICATE`  | Public certificate/full chain valid for `ROOTLENS_HOSTNAME`                           |
+| `ROOTLENS_TLS_PRIVATE_KEY`  | Matching private key                                                                  |
 
 Before promotion, the workflow writes protected values to private runner files
 and runs `scripts/validate_production_inputs.py`. The validator rejects
