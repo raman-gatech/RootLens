@@ -10,7 +10,7 @@ make up              # start and verify the full local stack
 make smoke           # rerun live stack verification
 make gateway-smoke   # query live backends through Milestone 2 clients
 make topology-smoke  # reconstruct, persist, and traverse a live service graph
-make anomaly-smoke   # analyze, rank, and persist recent service anomalies
+make anomaly-smoke   # analyze and persist recent service signals; rank any anomalies found
 make k8s-up           # run the demo in kind with Chaos Mesh
 make k8s-smoke        # verify cluster, workloads, frontend, and all fault CRDs
 make chaos-validate   # server-side dry-run all twenty fault manifests
