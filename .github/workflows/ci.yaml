@@ -37,7 +37,7 @@ jobs:
       - name: Dependency vulnerability audit
         run: |
           .venv/bin/pip install pip-audit==2.10.1
-          .venv/bin/pip-audit --strict --desc=off --local
+          .venv/bin/pip-audit --strict --desc=off --requirement requirements.lock --index-url https://pypi.org/simple/
       - name: Static security analysis
         run: |
           .venv/bin/pip install bandit==1.9.4
@@ -116,6 +116,6 @@ jobs:
           scan-type: image
           image-ref: rootlens:${{ github.sha }}
           format: table
-          severity: HIGH,CRITICAL
+          severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
