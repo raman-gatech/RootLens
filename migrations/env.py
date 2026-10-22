@@ -8,6 +8,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from rootlens.config import get_settings
+from rootlens.db.ssl import database_engine_configuration
 
 config = context.config
 if config.config_file_name is not None:
@@ -35,10 +36,14 @@ def do_run_migrations(connection: object) -> None:
 
 
 async def run_async_migrations() -> None:
+    engine_url, connect_args = database_engine_configuration(get_settings().database_url)
+    section = config.get_section(config.config_ini_section, {})
+    section["sqlalchemy.url"] = str(engine_url)
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

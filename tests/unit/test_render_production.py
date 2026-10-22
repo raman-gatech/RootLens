@@ -85,3 +85,41 @@ def test_placeholder_detection_uses_complete_yaml_values() -> None:
     assert _contains_placeholder({"host": "rootlens.example.com"})
     assert _contains_placeholder({"image": "rootlens@sha256:REPLACE_WITH_DIGEST"})
     assert not _contains_placeholder({"note": "rootlens.example.com.evil"})
+
+
+def test_render_can_delegate_tls_to_cert_manager(tmp_path: Path) -> None:
+    outputs = render(
+        source_directory=_SOURCE,
+        output_directory=tmp_path,
+        hostname="rootlens.ops.example.net",
+        image=_IMAGE,
+        ingress_class="nginx",
+        monitored_namespace="payments",
+        otlp_endpoint="https://otel.internal.example.net:4317",
+        prometheus_url="https://prometheus.internal.example.net",
+        tempo_url="https://tempo.internal.example.net",
+        loki_url="https://loki.internal.example.net",
+        certificate_issuer="letsencrypt-production",
+    )
+
+    ingress = next(yaml.safe_load_all(outputs[3].read_text()))
+    assert ingress["metadata"]["annotations"]["cert-manager.io/cluster-issuer"] == (
+        "letsencrypt-production"
+    )
+
+
+def test_render_rejects_invalid_certificate_issuer(tmp_path: Path) -> None:
+    with pytest.raises(ProductionRenderError, match="certificate issuer"):
+        render(
+            source_directory=_SOURCE,
+            output_directory=tmp_path,
+            hostname="rootlens.ops.example.net",
+            image=_IMAGE,
+            ingress_class="nginx",
+            monitored_namespace="payments",
+            otlp_endpoint="https://otel.internal.example.net:4317",
+            prometheus_url="https://prometheus.internal.example.net",
+            tempo_url="https://tempo.internal.example.net",
+            loki_url="https://loki.internal.example.net",
+            certificate_issuer="INVALID ISSUER",
+        )

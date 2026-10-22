@@ -40,21 +40,21 @@ spec:
             - name: auth
               mountPath: /run/secrets/rootlens-auth
               readOnly: true
-            - name: database-ca
-              mountPath: /run/secrets/database-ca
-              readOnly: true
             - name: temporary
               mountPath: /tmp
+            - name: database-ca
+              mountPath: /run/secrets/rootlens-database
+              readOnly: true
       volumes:
         - name: auth
           secret:
             secretName: rootlens-auth
             defaultMode: 0440
-        - name: database-ca
-          secret:
-            secretName: rootlens-database-ca
-            defaultMode: 0440
-            optional: true
         - name: temporary
           emptyDir:
             sizeLimit: 32Mi
+        - name: database-ca
+          secret:
+            secretName: rootlens-database-ca
+            optional: true
+            defaultMode: 0440

@@ -41,6 +41,7 @@ def render(
     prometheus_url: str,
     tempo_url: str,
     loki_url: str,
+    certificate_issuer: str | None = None,
 ) -> tuple[Path, ...]:
     """Validate deployment inputs and write phased Kubernetes manifests."""
     _validate_hostname(hostname)
@@ -48,6 +49,8 @@ def render(
         raise ProductionRenderError("image must be the RootLens GHCR image at a sha256 digest")
     _validate_kubernetes_name("ingress class", ingress_class)
     _validate_kubernetes_name("monitored namespace", monitored_namespace)
+    if certificate_issuer is not None:
+        _validate_kubernetes_name("certificate issuer", certificate_issuer)
     endpoints = {
         "ROOTLENS_OTLP_ENDPOINT": otlp_endpoint,
         "ROOTLENS_PROMETHEUS_URL": prometheus_url,
@@ -68,7 +71,12 @@ def render(
         endpoints=endpoints,
     )
     _configure_migration(migration_documents, image=image)
-    _configure_ingress(ingress_documents, hostname=hostname, ingress_class=ingress_class)
+    _configure_ingress(
+        ingress_documents,
+        hostname=hostname,
+        ingress_class=ingress_class,
+        certificate_issuer=certificate_issuer,
+    )
 
     prerequisites = tuple(
         document for document in rootlens_documents if document.get("kind") in _PREREQUISITE_KINDS
@@ -138,9 +146,17 @@ def _configure_migration(documents: tuple[dict[str, Any], ...], *, image: str) -
 
 
 def _configure_ingress(
-    documents: tuple[dict[str, Any], ...], *, hostname: str, ingress_class: str
+    documents: tuple[dict[str, Any], ...],
+    *,
+    hostname: str,
+    ingress_class: str,
+    certificate_issuer: str | None,
 ) -> None:
     ingress = _object(documents, "Ingress", "rootlens-api")
+    if certificate_issuer is not None:
+        ingress["metadata"].setdefault("annotations", {})["cert-manager.io/cluster-issuer"] = (
+            certificate_issuer
+        )
     ingress["spec"]["ingressClassName"] = ingress_class
     ingress["spec"]["tls"][0]["hosts"] = [hostname]
     ingress["spec"]["rules"][0]["host"] = hostname
@@ -209,6 +225,7 @@ def main() -> int:
     parser.add_argument("--prometheus-url", required=True)
     parser.add_argument("--tempo-url", required=True)
     parser.add_argument("--loki-url", required=True)
+    parser.add_argument("--certificate-issuer")
     arguments = parser.parse_args()
     outputs = render(
         source_directory=arguments.source_directory,
@@ -221,6 +238,7 @@ def main() -> int:
         prometheus_url=arguments.prometheus_url,
         tempo_url=arguments.tempo_url,
         loki_url=arguments.loki_url,
+        certificate_issuer=arguments.certificate_issuer,
     )
     print("\n".join(str(item) for item in outputs))
     return 0

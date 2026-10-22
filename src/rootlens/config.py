@@ -59,8 +59,6 @@ class Settings(BaseSettings):
     database_pool_size: int = Field(default=10, ge=1, le=100)
     database_max_overflow: int = Field(default=10, ge=0, le=100)
     database_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
-    database_ca_cert_file: str | None = None
-    database_ssl_mode: str | None = None
 
     @model_validator(mode="after")
     def validate_security_boundaries(self) -> Settings:

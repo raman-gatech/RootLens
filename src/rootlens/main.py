@@ -59,8 +59,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pool_size=resolved_settings.database_pool_size,
         max_overflow=resolved_settings.database_max_overflow,
         pool_timeout=resolved_settings.database_pool_timeout_seconds,
-        ca_cert_file=resolved_settings.database_ca_cert_file,
-        ssl_mode=resolved_settings.database_ssl_mode,
     )
     telemetry_gateway = TelemetryGateway.from_settings(resolved_settings)
     topology_service = ServiceTopologyService(

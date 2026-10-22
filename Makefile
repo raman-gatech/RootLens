@@ -6,6 +6,7 @@ VENV_PIP := $(VENV)/bin/pip
 RUNTIME_UID := $(shell id -u)
 KIND := .tools/bin/kind
 HELM := .tools/bin/helm
+TERRAFORM ?= terraform
 KIND_NODE_IMAGE := kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
 OTEL_DEMO_CHART_VERSION := 0.41.0
 CHAOS_MESH_CHART_VERSION := 2.8.4
@@ -18,7 +19,7 @@ COMPOSE := ROOTLENS_PROJECT_DIR="$(CURDIR)" ROOTLENS_RUNTIME_UID="$(RUNTIME_UID)
 	-f vendor/opentelemetry-demo/compose.yaml \
 	-f compose.yaml
 
-.PHONY: anomaly-smoke benchmark bootstrap chaos-smoke chaos-validate check compose-config down e2e format gateway-smoke k8s-core-up k8s-down k8s-smoke k8s-tools k8s-up lint live-evaluation migrate runtime-dir smoke test topology-smoke typecheck up
+.PHONY: anomaly-smoke benchmark bootstrap chaos-smoke chaos-validate check compose-config down e2e format gateway-smoke k8s-core-up k8s-down k8s-smoke k8s-tools k8s-up lint live-evaluation migrate oci-validate runtime-dir smoke test topology-smoke typecheck up
 
 bootstrap:
 	git submodule update --init --recursive
@@ -75,6 +76,16 @@ topology-smoke:
 
 anomaly-smoke:
 	$(VENV_PYTHON) scripts/verify_anomaly.py
+
+oci-validate:
+	$(VENV_PYTHON) scripts/validate_oci_free_tier.py
+	@if command -v $(TERRAFORM) >/dev/null 2>&1; then \
+		$(TERRAFORM) -chdir=infrastructure/oci/terraform fmt -check -recursive; \
+		$(TERRAFORM) -chdir=infrastructure/oci/terraform init -backend=false; \
+		$(TERRAFORM) -chdir=infrastructure/oci/terraform validate; \
+	else \
+		echo "Terraform is unavailable; static OCI guardrails passed."; \
+	fi
 
 k8s-tools:
 	bash scripts/bootstrap_k8s_tools.sh

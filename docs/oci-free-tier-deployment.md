@@ -1,194 +1,63 @@
-# OCI Always Free OKE Production Deployment Guide
+# OCI Always Free production foundation
 
-This guide details the complete process for provisioning, configuring, and verifying RootLens on Oracle Cloud Infrastructure (OCI) using the **Always Free** tier.
+RootLens uses an OCI Kubernetes Engine (OKE) Basic cluster because it preserves
+the existing Kubernetes production contract while keeping the managed control
+plane outside the worker compute allowance. Terraform is pinned to Oracle's OKE
+module `5.5.1` and the OCI provider `8.19.x`.
 
----
+The current conservative Always Free profile, verified against Oracle's service
+documentation on 2026-09-02, is:
 
-## 1. OCI Always Free Architecture & Capacity Limits
+- two `VM.Standard.A1.Flex` workers at 1 OCPU and 6 GB each;
+- 100 GB of worker boot volumes from the 200 GB combined boot/block allowance;
+- one public flexible load balancer fixed at 10 Mbps;
+- no NAT gateway, bastion VM, operator VM, enhanced-cluster fee, or virtual nodes;
+- a public Kubernetes endpoint restricted to explicitly supplied administrator
+  CIDRs, with public worker addresses used only for outbound image/API access.
 
-OCI provides generous Always Free tier resources for Arm-based Ampere compute:
+This profile is suitable for a public portfolio deployment and acceptance
+testing. It is not multi-region or infrastructure-level highly available: both
+worker nodes share the tenancy's home region and the total compute capacity is
+fixed. The application still runs two replicas, but a regional outage or Always
+Free capacity loss requires recovery from backup. A paid production service
+should move workers to private subnets behind a NAT gateway, use at least three
+failure-domain-distributed nodes, and use a managed PostgreSQL service.
 
-- **Compute**: Up to 4 OCPUs and 24 GB RAM across Ampere A1 (`VM.Standard.A1.Flex`) instances.
-- **RootLens Allocation**: **2 worker nodes**, each configured with **1 OCPU and 6 GB RAM** (total 2 OCPUs, 12 GB RAM), leaving remaining quota safely headroom-isolated.
-- **Networking**: Flexible Load Balancer pinned to **10 Mbps** (Always Free limit).
-- **Cluster**: OKE Basic Cluster (zero cluster management fee).
+## Required local inputs
 
+1. Create an OCI API signing key and configure it in `~/.oci/config`. Do not put
+   the private key, fingerprint, or user OCID in this repository.
+2. Copy `infrastructure/oci/terraform/terraform.tfvars.example` to the ignored
+   `terraform.tfvars` and set the tenancy OCID, compartment OCID, tenancy home
+   region, public SSH key path, and your current public IP as a `/32` control
+   plane CIDR.
+3. Confirm that Limits, Quotas and Usage shows the required Ampere, block-volume,
+   OKE Basic-cluster, and load-balancer capacity in the home region. Always Free
+   A1 host capacity can be temporarily unavailable even when the quota exists.
+
+Run the non-mutating validation before provisioning:
+
+```bash
+make oci-validate
+terraform -chdir=infrastructure/oci/terraform plan -out=rootlens.tfplan
+terraform -chdir=infrastructure/oci/terraform show rootlens.tfplan
 ```
-                      +-----------------------------+
-                      |       Public Internet       |
-                      +--------------+--------------+
-                                     |
-                          +----------v----------+
-                          |   OCI Load Balancer | (10 Mbps Always Free)
-                          |    (TCP 80 / 443)   |
-                          +----------+----------+
-                                     |
-            +------------------------+------------------------+
-            |                  Private VCN                    |
-            |   +-----------------------------------------+   |
-            |   |               OKE Cluster               |   |
-            |   |                                         |   |
-            |   |   +-----------------+ +---------------+ |   |
-            |   |   |  Node 1 (Arm64) | | Node 2(Arm64) | |   |
-            |   |   |   1 OCPU / 6GB  | |  1 OCPU / 6GB | |   |
-            |   |   +-----------------+ +---------------+ |   |
-            |   +-----------------------------------------+   |
-            +-------------------------------------------------+
+
+Only apply a reviewed plan that contains the Basic cluster, two A1 workers, one
+VCN, no NAT gateway, and no resources outside the home region:
+
+```bash
+terraform -chdir=infrastructure/oci/terraform apply rootlens.tfplan
+terraform -chdir=infrastructure/oci/terraform output -raw kubeconfig_command
 ```
 
----
+Run the emitted OCI CLI command, then store the resulting kubeconfig as the
+protected `PRODUCTION_KUBECONFIG` GitHub environment secret. Terraform state
+contains resource identifiers and must be stored in an access-controlled,
+encrypted backend before team operation; it is ignored locally and must never be
+committed.
 
-## 2. Prerequisites
-
-1. **OCI Account** with active Always Free Ampere capacity in your home region.
-2. **OCI CLI & API Signing Key**:
-   - Private key generated (`~/.oci/oci_api_key.pem`).
-   - Fingerprint uploaded to OCI Console under User Profile -> API Keys.
-3. **Required Identifiers**:
-   - `tenancy_ocid`
-   - `user_ocid`
-   - `compartment_ocid`
-   - `region` (e.g. `us-ashburn-1`, `us-phoenix-1`)
-   - `admin_source_cidr` (Your public IP, e.g. `203.0.113.10/32`)
-
----
-
-## 3. Terraform Provisioning
-
-1. Navigate to the Terraform directory:
-
-   ```bash
-   cd infrastructure/oci/terraform
-   ```
-
-2. Create `terraform.tfvars`:
-
-   ```hcl
-   tenancy_ocid      = "ocid1.tenancy.oc1..aaaa..."
-   user_ocid         = "ocid1.user.oc1..aaaa..."
-   compartment_ocid  = "ocid1.compartment.oc1..aaaa..."
-   region            = "us-ashburn-1"
-   fingerprint       = "xx:xx:xx:..."
-   private_key_path  = "~/.oci/oci_api_key.pem"
-   admin_source_cidr = "YOUR_PUBLIC_IP/32"
-   node_count        = 2
-   node_ocpus        = 1
-   node_memory_in_gbs = 6
-   ```
-
-3. Initialize and validate:
-
-   ```bash
-   terraform init
-   terraform validate
-   ```
-
-4. Plan and apply:
-
-   ```bash
-   terraform plan -out=tfplan
-   terraform apply tfplan
-   ```
-
-5. Retrieve Kubeconfig:
-   ```bash
-   $(terraform output -raw kubeconfig_command)
-   kubectl get nodes
-   ```
-
----
-
-## 4. Ingress & cert-manager Installation
-
-1. Install NGINX Ingress Controller:
-
-   ```bash
-   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-   helm repo update
-   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-     --namespace ingress-nginx --create-namespace \
-     --set controller.service.annotations."service\.beta\.kubernetes\.io/oci-load-balancer-shape"="flexible" \
-     --set controller.service.annotations."service\.beta\.kubernetes\.io/oci-load-balancer-shape-flex-min"="10" \
-     --set controller.service.annotations."service\.beta\.kubernetes\.io/oci-load-balancer-shape-flex-max"="10"
-   ```
-
-2. Install cert-manager:
-
-   ```bash
-   helm repo add jetstack https://charts.jetstack.io
-   helm repo update
-   helm upgrade --install cert-manager jetstack/cert-manager \
-     --namespace cert-manager --create-namespace \
-     --set crds.enabled=true
-   ```
-
-3. Deploy ClusterIssuer:
-   ```bash
-   kubectl apply -f deploy/production/cert-manager-issuer.yaml
-   ```
-
----
-
-## 5. Secret Provisioning & Phased Manifest Deployment
-
-1. Create application namespace:
-
-   ```bash
-   kubectl create namespace rootlens-system
-   ```
-
-2. Create runtime secrets:
-
-   ```bash
-   kubectl create secret generic rootlens-runtime \
-     --namespace rootlens-system \
-     --from-literal=database-url="postgresql+asyncpg://admin:SECRET@db.internal:5432/rootlens" \
-     --from-literal=openai-api-key="sk-proj-..."
-
-   kubectl create secret generic rootlens-auth \
-     --namespace rootlens-system \
-     --from-file=credentials.json=/path/to/credentials.json
-   ```
-
-3. Render phased manifests:
-
-   ```bash
-   python scripts/render_production.py \
-     --output-directory .runtime/rendered \
-     --hostname rootlens.yourdomain.com \
-     --image ghcr.io/raman-gatech/rootlens@sha256:<IMMUTABLE_DIGEST> \
-     --ingress-class nginx \
-     --monitored-namespace default \
-     --otlp-endpoint http://otel-collector.observability.svc:4317 \
-     --prometheus-url http://prometheus.observability.svc:9090 \
-     --tempo-url http://tempo.observability.svc:3200 \
-     --loki-url http://loki.observability.svc:3100
-   ```
-
-4. Apply phased manifests:
-   ```bash
-   kubectl apply -f .runtime/rendered/01-prerequisites.yaml
-   kubectl apply -f .runtime/rendered/02-migration.yaml
-   kubectl wait --for=condition=complete --timeout=120s job/rootlens-migrate -n rootlens-system
-   kubectl apply -f .runtime/rendered/03-application.yaml
-   kubectl apply -f .runtime/rendered/04-ingress.yaml
-   ```
-
----
-
-## 6. Verification, Smoke Testing & Rollback
-
-1. **Verify Pod Status & Endpoints**:
-
-   ```bash
-   kubectl get pods -n rootlens-system
-   curl -fk https://rootlens.yourdomain.com/health/live
-   curl -fk https://rootlens.yourdomain.com/health/ready
-   ```
-
-2. **Rollback Procedure**:
-   If a deployment failure or regression occurs:
-   ```bash
-   kubectl rollout undo deployment/rootlens-api -n rootlens-system
-   kubectl rollout status deployment/rootlens-api -n rootlens-system
-   ```
+The next deployment phase installs an NGINX ingress Service annotated as an OCI
+flexible load balancer with both the minimum and maximum fixed to `10`, provisions
+private telemetry and PostgreSQL endpoints, delegates DNS, and dispatches the
+existing protected production workflow.

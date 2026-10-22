@@ -1,102 +1,114 @@
 variable "tenancy_ocid" {
+  description = "OCI tenancy OCID."
   type        = string
-  description = "The OCID of the root tenancy."
-}
 
-variable "user_ocid" {
-  type        = string
-  description = "The OCID of the user calling the API."
+  validation {
+    condition     = startswith(var.tenancy_ocid, "ocid1.tenancy.")
+    error_message = "tenancy_ocid must be an OCI tenancy OCID."
+  }
 }
 
 variable "compartment_ocid" {
+  description = "OCI compartment OCID in the tenancy home region."
   type        = string
-  description = "The OCID of the compartment containing RootLens resources."
+
+  validation {
+    condition     = startswith(var.compartment_ocid, "ocid1.compartment.")
+    error_message = "compartment_ocid must be an OCI compartment OCID."
+  }
 }
 
 variable "region" {
+  description = "OCI tenancy home region; Always Free resources must be created here."
   type        = string
-  description = "OCI home or targeted region (e.g. us-ashburn-1, us-phoenix-1, us-chicago-1)."
+
+  validation {
+    condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]+$", var.region))
+    error_message = "region must be an OCI region name such as us-ashburn-1."
+  }
 }
 
-variable "fingerprint" {
+variable "oci_profile" {
+  description = "Profile in ~/.oci/config; credentials never belong in tfvars or state."
   type        = string
-  description = "The fingerprint of the API signing key."
+  default     = "DEFAULT"
 }
 
-variable "private_key_path" {
+variable "ssh_public_key_path" {
+  description = "Path to the public SSH key placed on managed worker nodes."
   type        = string
-  description = "Local path to the OCI API private key (PEM format)."
+}
+
+variable "control_plane_allowed_cidrs" {
+  description = "Trusted public IPv4 CIDRs allowed to reach the Kubernetes API."
+  type        = list(string)
+
+  validation {
+    condition = length(var.control_plane_allowed_cidrs) > 0 && alltrue([
+      for cidr in var.control_plane_allowed_cidrs :
+      can(cidrhost(cidr, 0)) && cidr != "0.0.0.0/0"
+    ])
+    error_message = "Provide at least one valid restricted CIDR; 0.0.0.0/0 is forbidden."
+  }
 }
 
 variable "cluster_name" {
+  description = "OKE cluster display name."
   type        = string
-  description = "Name for the OKE cluster."
   default     = "rootlens-production"
 }
 
 variable "kubernetes_version" {
+  description = "OKE-supported Kubernetes version in the selected home region."
   type        = string
-  description = "Kubernetes version for the OKE cluster control plane and worker nodes."
-  default     = "v1.31.1"
-}
-
-variable "node_shape" {
-  type        = string
-  description = "The compute shape for worker nodes. VM.Standard.A1.Flex is Always Free eligible."
-  default     = "VM.Standard.A1.Flex"
+  default     = "v1.34.2"
 
   validation {
-    condition     = var.node_shape == "VM.Standard.A1.Flex"
-    error_message = "Only VM.Standard.A1.Flex is permitted to ensure Always Free tier compliance."
+    condition     = can(regex("^v1\\.[0-9]+\\.[0-9]+$", var.kubernetes_version))
+    error_message = "kubernetes_version must look like v1.34.2."
   }
 }
 
-variable "node_count" {
+variable "worker_count" {
+  description = "Number of Always Free Ampere workers."
   type        = number
-  description = "Number of worker nodes in the Ampere node pool."
   default     = 2
 
   validation {
-    condition     = var.node_count >= 1 && var.node_count <= 4
-    error_message = "Node count must be between 1 and 4 for Always Free Ampere capacity."
+    condition     = var.worker_count >= 1 && var.worker_count <= 2
+    error_message = "The RootLens Always Free profile supports one or two workers."
   }
 }
 
-variable "node_ocpus" {
+variable "worker_ocpus" {
+  description = "OCPUs assigned to each Ampere worker."
   type        = number
-  description = "OCPUs allocated per worker node."
   default     = 1
 
   validation {
-    condition     = var.node_ocpus >= 1 && var.node_ocpus <= 4
-    error_message = "OCPUs per node must be between 1 and 4."
+    condition     = var.worker_ocpus >= 1
+    error_message = "Each managed OKE worker requires at least one OCPU."
   }
 }
 
-variable "node_memory_in_gbs" {
+variable "worker_memory_gb" {
+  description = "Memory assigned to each Ampere worker in GB."
   type        = number
-  description = "Memory in GBs allocated per worker node."
   default     = 6
 
   validation {
-    condition     = var.node_memory_in_gbs >= 6 && var.node_memory_in_gbs <= 24
-    error_message = "Memory per node must be between 6 GB and 24 GB."
+    condition     = var.worker_memory_gb >= 6
+    error_message = "Each RootLens worker requires at least 6 GB of memory."
   }
 }
 
-variable "admin_source_cidr" {
-  type        = string
-  description = "Administrator public IP CIDR (/32) allowed to access Kubernetes API and SSH."
+variable "worker_boot_volume_gb" {
+  description = "Boot volume size for each worker; OCI managed nodes require at least 50 GB."
+  type        = number
+  default     = 50
 
   validation {
-    condition     = can(regex("^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:32|24)$", var.admin_source_cidr))
-    error_message = "admin_source_cidr must be a valid IPv4 CIDR (e.g. 203.0.113.10/32)."
+    condition     = var.worker_boot_volume_gb == 50
+    error_message = "Keep each worker boot volume at the 50 GB Always Free minimum."
   }
 }
-
-variable "ssh_public_key" {
-  type        = string
-  description = "SSH public key for node access (optional)."
-  default     = ""
-}
-

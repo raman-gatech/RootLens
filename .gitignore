@@ -7,6 +7,12 @@
 .venv/
 .tools/
 .ground-truth/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log
+crash.*.log
 __pycache__/
 *.egg-info/
 *.py[cod]

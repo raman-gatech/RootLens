@@ -1,30 +1,34 @@
 output "cluster_id" {
-  description = "The OCID of the OKE cluster."
-  value       = oci_containerengine_cluster.rootlens_cluster.id
+  description = "OKE cluster OCID used to generate the deployment kubeconfig."
+  value       = module.oke.cluster_id
 }
 
-output "cluster_name" {
-  description = "The name of the OKE cluster."
-  value       = oci_containerengine_cluster.rootlens_cluster.name
+output "cluster_endpoints" {
+  description = "Public and private OKE control-plane endpoints."
+  value       = module.oke.cluster_endpoints
 }
 
-output "kubernetes_endpoint" {
-  description = "The endpoint URL for the Kubernetes cluster API."
-  value       = oci_containerengine_cluster.rootlens_cluster.endpoints[0].public_endpoint
+output "worker_pool_ids" {
+  description = "Managed Ampere worker-pool OCIDs."
+  value       = module.oke.worker_pool_ids
 }
 
 output "kubeconfig_command" {
-  description = "OCI CLI command to generate local kubeconfig for the cluster."
-  value       = "oci ce cluster create-kubeconfig --cluster-id ${oci_containerengine_cluster.rootlens_cluster.id} --file $HOME/.kube/config --region ${var.region} --token-version 2.0.0 --kube-endpoint PUBLIC_ENDPOINT"
+  description = "Command that writes a short-lived OCI-authenticated kubeconfig."
+  value = format(
+    "oci ce cluster create-kubeconfig --cluster-id %s --file ~/.kube/rootlens-oci --region %s --token-version 2.0.0 --kube-endpoint PUBLIC_ENDPOINT",
+    module.oke.cluster_id,
+    var.region,
+  )
 }
 
-output "node_pool_id" {
-  description = "The OCID of the Ampere worker node pool."
-  value       = oci_containerengine_node_pool.rootlens_ampere_pool.id
+output "always_free_allocation" {
+  description = "Requested resources compared with the encoded Always Free ceiling."
+  value = {
+    workers       = var.worker_count
+    total_ocpus   = var.worker_count * var.worker_ocpus
+    total_memory  = var.worker_count * var.worker_memory_gb
+    boot_volume   = var.worker_count * var.worker_boot_volume_gb
+    load_balancer = "flexible 10 Mbps; configured during ingress installation"
+  }
 }
-
-output "lb_subnet_id" {
-  description = "The OCID of the public load balancer subnet."
-  value       = oci_core_subnet.lb_subnet.id
-}
-

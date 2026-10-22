@@ -1,0 +1,21 @@
+{
+  "as_of": "2026-09-02",
+  "home_region_required": true,
+  "compute": {
+    "shape": "VM.Standard.A1.Flex",
+    "ocpus": 2,
+    "memory_gb": 12,
+    "monthly_ocpu_hours": 1500,
+    "monthly_memory_gb_hours": 9000
+  },
+  "storage": {
+    "total_boot_and_block_gb": 200,
+    "object_storage_gb": 20,
+    "volume_backups": 5
+  },
+  "load_balancer": {
+    "count": 1,
+    "minimum_mbps": 10,
+    "maximum_mbps": 10
+  }
+}

@@ -1,0 +1,19 @@
+# Non-secret deployment inputs only. Copy to terraform.tfvars (gitignored).
+tenancy_ocid     = "ocid1.tenancy.oc1..replace_me"
+compartment_ocid = "ocid1.compartment.oc1..replace_me"
+region           = "us-ashburn-1"
+oci_profile      = "DEFAULT"
+
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+
+# Use your current public IP as a /32. Never use 0.0.0.0/0.
+control_plane_allowed_cidrs = ["203.0.113.10/32"]
+
+cluster_name       = "rootlens-production"
+kubernetes_version = "v1.34.2"
+
+# These defaults consume the complete current Always Free Ampere allowance.
+worker_count          = 2
+worker_ocpus          = 1
+worker_memory_gb      = 6
+worker_boot_volume_gb = 50

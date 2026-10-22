@@ -24,10 +24,16 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.0
+          terraform_wrapper: false
       - name: Bootstrap
         run: make bootstrap
       - name: Quality gates
         run: make check
+      - name: OCI Always Free Terraform validation
+        run: make oci-validate
       - name: Dependency vulnerability audit
         run: |
           .venv/bin/pip install pip-audit==2.10.1
@@ -113,17 +119,3 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-
-  infrastructure:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
-        with:
-          terraform_version: "1.9.5"
-      - name: Validate OCI Terraform configuration
-        run: |
-          terraform -chdir=infrastructure/oci/terraform init -backend=false
-          terraform -chdir=infrastructure/oci/terraform validate
-          terraform -chdir=infrastructure/oci/terraform fmt -check
