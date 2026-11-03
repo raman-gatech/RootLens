@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70 AS builder
+FROM python:3.15-slim-bookworm@sha256:4e03260adeeebafccd084f3584e6b84823aba5651cfb53ef8a078ed441ddf9cd AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
@@ -9,7 +9,7 @@ COPY src ./src
 
 RUN pip wheel --no-cache-dir --wheel-dir /wheels --constraint requirements.lock .
 
-FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70 AS runtime
+FROM python:3.15-slim-bookworm@sha256:4e03260adeeebafccd084f3584e6b84823aba5651cfb53ef8a078ed441ddf9cd AS runtime
 
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
